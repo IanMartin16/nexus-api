@@ -1,13 +1,14 @@
 package com.evilink.nexus_api.chat;
 
-import com.evilink.nexus_api.openai.OpenAiResponsesClient;
-import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatus;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.http.MediaType;
+import org.springframework.util.StreamUtils;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Map;
 
 @RestController
@@ -15,46 +16,84 @@ import java.util.Map;
 public class ChatController {
 
   private final String nexusWebSecret;
-  private final OpenAiResponsesClient openAiResponsesClient;
+  private final com.evilink.nexus_api.openai.OpenAiResponsesClient openAi;
 
   public ChatController(
       @Value("${nexus.web-secret:}") String webSecret,
-      OpenAiResponsesClient openAiResponsesClient
+      com.evilink.nexus_api.openai.OpenAiResponsesClient openAi
   ) {
     this.nexusWebSecret = webSecret;
-    this.openAiResponsesClient = openAiResponsesClient;
+    this.openAi = openAi;
   }
 
-  @PostMapping("/chat")
+  @PostMapping(value = "/chat", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
   public Map<String, Object> chat(
       @RequestHeader(value = "x-web-secret", required = false) String webSecret,
-      @Valid @RequestBody ChatRequest req
+      @RequestBody ChatRequest req
   ) {
-    // Si configuraste un secreto, lo exigimos
+    // Seguridad simple por secret
     if (nexusWebSecret != null && !nexusWebSecret.isBlank()) {
       if (webSecret == null || !webSecret.equals(nexusWebSecret)) {
-        throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Unauthorized");
+        return Map.of("ok", false, "error", "Unauthorized");
       }
     }
 
-    String instructions = buildInstructions(req.product());
-    String answer = openAiResponsesClient.generateAnswer(instructions, req.message());
+    String context = loadProductKnowledge(req.product());
+    String instructions = buildInstructions(req.product(), context);
+
+    String answer = openAi.generateAnswer(instructions, req.message());
 
     return Map.of(
         "ok", true,
         "product", req.product(),
-        "answer", answer
+        "answer", answer,
+        "ts", Instant.now().toString()
     );
   }
 
-  private String buildInstructions(String product) {
-    // Puedes afinar esto cuando metamos RAG por README
+  private String loadProductKnowledge(String product) {
+    // Mapea productos a docs locales (temporal)
+    String file = switch (product == null ? "" : product.trim().toLowerCase()) {
+      case "curpify" -> "knowledge/curpify.md";
+      case "cryptolink" -> "knowledge/cryptolink.md";
+      case "evilink", "evi_link", "evi-link" -> "knowledge/evilink.md";
+      default -> null;
+    };
+
+    if (file == null) return "";
+
+    try {
+      ClassPathResource r = new ClassPathResource(file);
+      if (!r.exists()) return "";
+      byte[] bytes = StreamUtils.copyToByteArray(r.getInputStream());
+      String text = new String(bytes, StandardCharsets.UTF_8);
+
+      // Evita meter docs gigantes (MVP)
+      int max = 10_000;
+      return text.length() > max ? text.substring(0, max) : text;
+
+    } catch (Exception e) {
+      return "";
+    }
+  }
+
+  private String buildInstructions(String product, String context) {
+    // Instrucciones fuertes anti-alucinación
     return """
-      Eres Nexus, el chatbot oficial de evi_link.
-      Contesta en español, claro y práctico.
-      Enfócate en el producto: %s.
-      Si no tienes información suficiente, dilo y pide el dato mínimo necesario.
-      """.formatted(product);
+Eres Nexus, el chatbot oficial de evi_link.
+Responde SIEMPRE en español, claro y práctico.
+
+REGLAS IMPORTANTES:
+- Usa únicamente la información del CONTEXTO (documentación del producto).
+- Si algo NO está en el CONTEXTO, dilo explícitamente y pide el dato mínimo.
+- No inventes URLs, endpoints, headers, precios ni límites.
+- Si hay un endpoint, repite exactamente el path y el header correcto.
+
+PRODUCTO: %s
+
+CONTEXTO (documentación):
+%s
+""".formatted(product, context == null ? "" : context);
   }
 
   public record ChatRequest(
