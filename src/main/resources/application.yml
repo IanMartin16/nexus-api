@@ -1,32 +1,18 @@
 server:
   port: ${PORT:8080}
 
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info
-
-# Defaults (prod): DB ON
 spring:
-  datasource:
-    url: ${SPRING_DATASOURCE_URL:${DATABASE_URL:}}
-    username: ${SPRING_DATASOURCE_USERNAME:}
-    password: ${SPRING_DATASOURCE_PASSWORD:}
+  autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
       - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
       - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
 
-  jpa:
-    hibernate:
-      ddl-auto: validate
-    properties:
-      hibernate:
-        dialect: org.hibernate.dialect.PostgreSQLDialect
-
-  flyway:
-    enabled: true
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
 
 openai:
   api-key: ${OPENAI_API_KEY:}
@@ -37,5 +23,6 @@ openai:
 
 nexus:
   web-secret: ${NEXUS_WEB_SECRET:}
+
 
 
