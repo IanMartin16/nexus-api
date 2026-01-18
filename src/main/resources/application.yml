@@ -13,6 +13,10 @@ spring:
     url: ${SPRING_DATASOURCE_URL:${DATABASE_URL:}}
     username: ${SPRING_DATASOURCE_USERNAME:}
     password: ${SPRING_DATASOURCE_PASSWORD:}
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
 
   jpa:
     hibernate:
@@ -33,4 +37,5 @@ openai:
 
 nexus:
   web-secret: ${NEXUS_WEB_SECRET:}
+
 
