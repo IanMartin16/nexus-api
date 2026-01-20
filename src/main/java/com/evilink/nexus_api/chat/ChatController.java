@@ -1,14 +1,11 @@
 package com.evilink.nexus_api.chat;
 
+import com.evilink.nexus_api.docs.ProductDocsService;
+import com.evilink.nexus_api.openai.OpenAiResponsesClient;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.io.ClassPathResource;
-import org.springframework.http.MediaType;
-import org.springframework.util.StreamUtils;
 import org.springframework.web.bind.annotation.*;
 
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.util.Map;
 
 @RestController
@@ -16,84 +13,74 @@ import java.util.Map;
 public class ChatController {
 
   private final String nexusWebSecret;
-  private final com.evilink.nexus_api.openai.OpenAiResponsesClient openAi;
+  private final OpenAiResponsesClient openAiResponsesClient;
+  private final ProductDocsService docsService;
 
   public ChatController(
       @Value("${nexus.web-secret:}") String webSecret,
-      com.evilink.nexus_api.openai.OpenAiResponsesClient openAi
+      OpenAiResponsesClient openAiResponsesClient,
+      ProductDocsService docsService
   ) {
     this.nexusWebSecret = webSecret;
-    this.openAi = openAi;
+    this.openAiResponsesClient = openAiResponsesClient;
+    this.docsService = docsService;
   }
 
-  @PostMapping(value = "/chat", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+  @PostMapping("/chat")
   public Map<String, Object> chat(
       @RequestHeader(value = "x-web-secret", required = false) String webSecret,
       @RequestBody ChatRequest req
   ) {
-    // Seguridad simple por secret
+    // auth opcional por secret
     if (nexusWebSecret != null && !nexusWebSecret.isBlank()) {
       if (webSecret == null || !webSecret.equals(nexusWebSecret)) {
         return Map.of("ok", false, "error", "Unauthorized");
       }
     }
 
-    String context = loadProductKnowledge(req.product());
-    String instructions = buildInstructions(req.product(), context);
+    String product = (req.product() == null) ? "" : req.product().trim().toLowerCase();
+    String productDocs = docsService.getDocs(product);
+    productDocs = docsService.trim(productDocs, 7000); // ajusta si quieres
 
-    String answer = openAi.generateAnswer(instructions, req.message());
+    String instructions = buildInstructions(product, productDocs);
+
+    String answer = openAiResponsesClient.generateAnswer(instructions, req.message());
+
+    // Si OpenAI regresa error, mejor marcar ok=false
+    if (answer != null && answer.startsWith("OpenAI error")) {
+      return Map.of("ok", false, "error", answer, "product", product);
+    }
 
     return Map.of(
         "ok", true,
-        "product", req.product(),
-        "answer", answer,
-        "ts", Instant.now().toString()
+        "product", product,
+        "answer", answer
     );
   }
 
-  private String loadProductKnowledge(String product) {
-    // Mapea productos a docs locales (temporal)
-    String file = switch (product == null ? "" : product.trim().toLowerCase()) {
-      case "curpify" -> "knowledge/curpify.md";
-      case "cryptolink" -> "knowledge/cryptolink.md";
-      case "evilink", "evi_link", "evi-link" -> "knowledge/evilink.md";
-      default -> null;
-    };
+  private String buildInstructions(String product, String docs) {
+    // Si no hay docs, no inventamos: pedimos base URL / info mínima.
+    String docsBlock = (docs == null || docs.isBlank())
+        ? "NO HAY DOCS CARGADAS PARA ESTE PRODUCTO. No inventes. Pide lo mínimo."
+        : docs;
 
-    if (file == null) return "";
-
-    try {
-      ClassPathResource r = new ClassPathResource(file);
-      if (!r.exists()) return "";
-      byte[] bytes = StreamUtils.copyToByteArray(r.getInputStream());
-      String text = new String(bytes, StandardCharsets.UTF_8);
-
-      // Evita meter docs gigantes (MVP)
-      int max = 10_000;
-      return text.length() > max ? text.substring(0, max) : text;
-
-    } catch (Exception e) {
-      return "";
-    }
-  }
-
-  private String buildInstructions(String product, String context) {
-    // Instrucciones fuertes anti-alucinación
     return """
 Eres Nexus, el chatbot oficial de evi_link.
-Responde SIEMPRE en español, claro y práctico.
+
+Responde en español, claro y práctico.
+Enfócate SOLO en el producto: %s.
 
 REGLAS IMPORTANTES:
-- Usa únicamente la información del CONTEXTO (documentación del producto).
-- Si algo NO está en el CONTEXTO, dilo explícitamente y pide el dato mínimo.
-- No inventes URLs, endpoints, headers, precios ni límites.
-- Si hay un endpoint, repite exactamente el path y el header correcto.
+- Usa ÚNICAMENTE el CONTEXTO (docs) para endpoints, headers, límites, URLs y ejemplos.
+- NO inventes dominios/hosts/URLs completas. Si la base URL no está en el contexto, responde solo con el path (ej: /api/curp/validate) y pide la base URL del ambiente.
+- Si falta información en las docs, dilo y pregunta lo mínimo.
+- Si el usuario pide “cómo integrar”, da pasos + ejemplo curl.
 
-PRODUCTO: %s
-
-CONTEXTO (documentación):
+CONTEXTO (DOCS DEL PRODUCTO):
+------------------------------
 %s
-""".formatted(product, context == null ? "" : context);
+------------------------------
+""".formatted(product, docsBlock);
   }
 
   public record ChatRequest(

@@ -56,3 +56,7 @@ Body:
 ```json
 { "curp": "GODE561231HDFABC09" }
 ```
+
+## Base URL
+- Local: http://localhost:3000
+- Producción: /api/curp/validate
