@@ -5,6 +5,10 @@ import com.evilink.nexus_api.openai.OpenAiResponsesClient;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
+import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 
 import java.util.Map;
 
@@ -15,6 +19,8 @@ public class ChatController {
   private final String nexusWebSecret;
   private final OpenAiResponsesClient openAiResponsesClient;
   private final ProductDocsService docsService;
+  private static final Logger log = LoggerFactory.getLogger(ChatController.class);
+
 
   public ChatController(
       @Value("${nexus.web-secret:}") String webSecret,
@@ -29,7 +35,7 @@ public class ChatController {
   @PostMapping("/chat")
   public Map<String, Object> chat(
       @RequestHeader(value = "x-web-secret", required = false) String webSecret,
-      @RequestBody ChatRequest req
+      @Valid @RequestBody ChatRequest req
   ) {
     // auth opcional por secret
     if (nexusWebSecret != null && !nexusWebSecret.isBlank()) {
@@ -37,6 +43,10 @@ public class ChatController {
         return Map.of("ok", false, "error", "Unauthorized");
       }
     }
+    log.info("CHAT IN sessionId='{}' product='{}' msgLen={}",
+        req.sessionId(), req.product(), 
+        req.message() == null ? -1 : req.message().length()
+    );
 
     String product = (req.product() == null) ? "" : req.product().trim().toLowerCase();
     String productDocs = docsService.getDocs(product);

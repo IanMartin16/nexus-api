@@ -7,6 +7,16 @@ spring:
       - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
       - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
       - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+  datasource:
+    url: jdbc:postgresql://localhost:5235/postgres
+    username: postgres
+    password: ${PGPASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect      
 
 management:
   endpoints:
@@ -23,6 +33,4 @@ openai:
 
 nexus:
   web-secret: ${NEXUS_WEB_SECRET:}
-
-
 

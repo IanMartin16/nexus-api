@@ -1,6 +1,7 @@
 spring:
   flyway:
-    enabled: false
+    enabled: true
+    locations: classpath:db/migration
 
   autoconfigure:
     exclude:
