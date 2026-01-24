@@ -37,3 +37,4 @@ build/
 !.env.example
 *.local
 application-local.yml
+application-local.properties
