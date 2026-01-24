@@ -2,34 +2,35 @@ package com.evilink.nexus_api.chat;
 
 import com.evilink.nexus_api.docs.ProductDocsService;
 import com.evilink.nexus_api.openai.OpenAiResponsesClient;
+import com.evilink.nexus_api.persistence.MessageEntity;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
-import jakarta.validation.Valid;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/v1")
 public class ChatController {
 
   private final String nexusWebSecret;
-  private final OpenAiResponsesClient openAiResponsesClient;
+  private final OpenAiResponsesClient openAi;
   private final ProductDocsService docsService;
-  private static final Logger log = LoggerFactory.getLogger(ChatController.class);
-
+  private final ChatMemoryService memory;
 
   public ChatController(
       @Value("${nexus.web-secret:}") String webSecret,
-      OpenAiResponsesClient openAiResponsesClient,
-      ProductDocsService docsService
+      OpenAiResponsesClient openAi,
+      ProductDocsService docsService,
+      ChatMemoryService memory
   ) {
     this.nexusWebSecret = webSecret;
-    this.openAiResponsesClient = openAiResponsesClient;
+    this.openAi = openAi;
     this.docsService = docsService;
+    this.memory = memory;
   }
 
   @PostMapping("/chat")
@@ -43,54 +44,116 @@ public class ChatController {
         return Map.of("ok", false, "error", "Unauthorized");
       }
     }
-    log.info("CHAT IN sessionId='{}' product='{}' msgLen={}",
-        req.sessionId(), req.product(), 
-        req.message() == null ? -1 : req.message().length()
-    );
 
-    String product = (req.product() == null) ? "" : req.product().trim().toLowerCase();
-    String productDocs = docsService.getDocs(product);
-    productDocs = docsService.trim(productDocs, 7000); // ajusta si quieres
+    String product = req.product().trim().toLowerCase();
 
-    String instructions = buildInstructions(product, productDocs);
+    // 1) upsert conversación
+    var conv = memory.getOrCreateConversation(req.sessionId(), product);
+    UUID conversationId = conv.getId();
 
-    String answer = openAiResponsesClient.generateAnswer(instructions, req.message());
+    // 2) (opcional) resumen si ya creció (antes de generar respuesta)
+    conv = memory.maybeSummarize(conv, 20);
 
-    // Si OpenAI regresa error, mejor marcar ok=false
-    if (answer != null && answer.startsWith("OpenAI error")) {
-      return Map.of("ok", false, "error", answer, "product", product);
-    }
+    // 3) docs del producto + recorte
+    String docs = docsService.trim(docsService.getDocs(product), 12000);
+
+    // 4) instrucciones
+    String instructions = buildInstructions(product, docs);
+
+    // 5) contexto: últimos N mensajes (antes de guardar el mensaje actual)
+    //    así evitamos duplicar: el mensaje actual va como "input" aparte
+    List<MessageEntity> last = memory.getLastMessages(conversationId, 12);
+    String context = buildContextWithSummary(conv.getSummary(), last);
+
+    // 6) guarda mensaje user
+    memory.saveMessage(conv, "user", req.message());
+
+    // 7) llamar OpenAI (input = mensaje actual)
+    String answer = openAi.generateAnswerWithContext(instructions, context, req.message());
+
+    // 8) guarda respuesta assistant
+    memory.saveMessage(conv, "assistant", answer);
 
     return Map.of(
         "ok", true,
         "product", product,
-        "answer", answer
+        "answer", answer,
+        "conversationId", conversationId.toString()
     );
   }
 
-  private String buildInstructions(String product, String docs) {
-    // Si no hay docs, no inventamos: pedimos base URL / info mínima.
-    String docsBlock = (docs == null || docs.isBlank())
-        ? "NO HAY DOCS CARGADAS PARA ESTE PRODUCTO. No inventes. Pide lo mínimo."
-        : docs;
+  @GetMapping("/history")
+  public Map<String, Object> history(
+      @RequestParam String sessionId,
+      @RequestParam String product,
+      @RequestParam(defaultValue = "30") int limit
+  ) {
+    String p = (product == null) ? "" : product.trim().toLowerCase();
 
+    var convOpt = memory.findConversation(sessionId, p);
+    if (convOpt.isEmpty()) {
+      return Map.of("ok", true, "messages", List.of());
+    }
+
+    var conv = convOpt.get();
+    var msgs = memory.getLastMessages(conv.getId(), limit);
+
+    var out = msgs.stream().map(m -> Map.of(
+        "role", m.getRole(),
+        "text", m.getContent(),
+        "ts", m.getCreatedAt().toString()
+    )).toList();
+
+    return Map.of("ok", true, "messages", out);
+  }
+
+  private String buildInstructions(String product, String docs) {
     return """
 Eres Nexus, el chatbot oficial de evi_link.
 
-Responde en español, claro y práctico.
-Enfócate SOLO en el producto: %s.
+ESTILO:
+- Responde en español, claro, práctico y directo.
+- Usa bullets y ejemplos cortos cuando ayude.
+- Si falta info, pregunta lo mínimo (1-2 preguntas máximo).
 
-REGLAS IMPORTANTES:
-- Usa ÚNICAMENTE el CONTEXTO (docs) para endpoints, headers, límites, URLs y ejemplos.
-- NO inventes dominios/hosts/URLs completas. Si la base URL no está en el contexto, responde solo con el path (ej: /api/curp/validate) y pide la base URL del ambiente.
-- Si falta información en las docs, dilo y pregunta lo mínimo.
-- Si el usuario pide “cómo integrar”, da pasos + ejemplo curl.
+REGLAS:
+- Enfócate SOLO en el producto: %s.
+- Si preguntan algo fuera del producto, redirígelo al producto con amabilidad.
+- No pidas ni aceptes datos sensibles (tarjetas, passwords, tokens, llaves).
+- Si el usuario pega secretos, dile que los rote y los quite del chat.
 
-CONTEXTO (DOCS DEL PRODUCTO):
-------------------------------
+DOCUMENTACIÓN DEL PRODUCTO (fuente principal):
 %s
-------------------------------
-""".formatted(product, docsBlock);
+""".formatted(product, (docs == null ? "" : docs));
+  }
+
+  private String buildContextWithSummary(String summary, List<MessageEntity> msgsAsc) {
+    String recent = buildContext(msgsAsc);
+    if (summary == null || summary.isBlank()) return recent;
+
+    if (recent == null || recent.isBlank()) {
+      return "RESUMEN ACUMULADO:\n" + summary.trim();
+    }
+
+    return """
+RESUMEN ACUMULADO:
+%s
+
+CHAT RECIENTE:
+%s
+""".formatted(summary.trim(), recent);
+  }
+
+  private String buildContext(List<MessageEntity> msgsAsc) {
+    if (msgsAsc == null || msgsAsc.isEmpty()) return "";
+    StringBuilder sb = new StringBuilder();
+    for (MessageEntity m : msgsAsc) {
+      String role = m.getRole() == null ? "" : m.getRole().trim();
+      String content = m.getContent() == null ? "" : m.getContent().trim();
+      if (content.isBlank()) continue;
+      sb.append(role).append(": ").append(content).append("\n");
+    }
+    return sb.toString().trim();
   }
 
   public record ChatRequest(

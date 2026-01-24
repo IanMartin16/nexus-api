@@ -5,8 +5,10 @@ import java.time.Instant;
 import java.util.UUID;
 
 @Entity
-@Table(name = "nexus_conversations",
-       indexes = @Index(name = "idx_nexus_conv_session_product", columnList = "session_id,product"))
+@Table(
+    name = "nexus_conversations",
+    indexes = @Index(name = "idx_nexus_conv_session_product", columnList = "session_id,product")
+)
 public class ConversationEntity {
 
   @Id
@@ -24,6 +26,14 @@ public class ConversationEntity {
   @Column(name = "last_seen_at", nullable = false)
   private Instant lastSeenAt;
 
+  // ✅ NUEVO (V2)
+  @Column(name = "summary", columnDefinition = "text")
+  private String summary;
+
+  // ✅ NUEVO (V2)
+  @Column(name = "summary_updated_at")
+  private Instant summaryUpdatedAt;
+
   protected ConversationEntity() {}
 
   public ConversationEntity(UUID id, String sessionId, String product, Instant createdAt, Instant lastSeenAt) {
@@ -40,5 +50,14 @@ public class ConversationEntity {
   public Instant getCreatedAt() { return createdAt; }
   public Instant getLastSeenAt() { return lastSeenAt; }
 
+  // ✅ getters para summary (sin setters)
+  public String getSummary() { return summary; }
+  public Instant getSummaryUpdatedAt() { return summaryUpdatedAt; }
+
   public void touch() { this.lastSeenAt = Instant.now(); }
+
+  public void updateSummary(String summary) {
+    this.summary = summary;
+    this.summaryUpdatedAt = Instant.now();
+  }
 }

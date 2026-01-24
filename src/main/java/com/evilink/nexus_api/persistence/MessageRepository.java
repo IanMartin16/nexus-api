@@ -9,10 +9,14 @@ import java.util.UUID;
 
 public interface MessageRepository extends JpaRepository<MessageEntity, UUID> {
 
-  @Query("""
-    select m from MessageEntity m
-    where m.conversation.id = :cid
-    order by m.createdAt asc
-  """)
-  List<MessageEntity> findAllByConversationId(@Param("cid") UUID conversationId);
+  @Query(value = """
+    select * from nexus_messages
+    where conversation_id = :cid
+    order by created_at desc
+    limit :limit
+  """, nativeQuery = true)
+  List<MessageEntity> findLastByConversationId(@Param("cid") UUID conversationId, @Param("limit") int limit);
+
+  long countByConversation_Id(UUID conversationId);
+
 }
