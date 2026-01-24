@@ -8,8 +8,8 @@ spring:
     # - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
     #  - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
   datasource:
-    url: jdbc:postgresql://localhost:5432/postgres
-    username: postgres
+    url: jdbc:postgresql://switchyard.proxy.rlwy.net:22619/railway?sslmode=require
+    username: ${PGUSER}
     password: ${PGPASSWORD}
   flyway:
     enabled: true
