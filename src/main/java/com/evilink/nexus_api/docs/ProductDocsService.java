@@ -19,7 +19,7 @@ public class ProductDocsService {
       String path = switch (key) {
         case "curpify" -> "knowledge/curpify.md";
         case "cryptolink" -> "knowledge/cryptolink.md";
-        case "evilink" -> "knowledge/evilink.md";
+        case "evi_link" -> "knowledge/evilink.md";
         default -> "";
       };
 
