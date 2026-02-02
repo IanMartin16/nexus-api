@@ -43,4 +43,29 @@ public class ProductDocsService {
     if (t.length() <= maxChars) return t;
     return t.substring(0, maxChars) + "\n\n[...doc recortado por tamaño...]";
   }
+  public String getDocsBundle(String product) {
+    String p = (product == null) ? "" : product.trim().toLowerCase();
+
+    // si el user selecciona evilink => meter todo
+    if ("evilink".equals(p) || "general".equals(p)) {
+      String curpify = getDocs("curpify");
+      String cryptolink = getDocs("cryptolink");
+      String evilink = getDocs("evilink");
+
+      return """
+  # Curpify
+  %s
+
+  # CryptoLink
+  %s
+
+  # evi_link
+  %s
+  """.formatted(curpify, cryptolink, evilink).trim();
+    }
+
+    // si no, normal (solo el producto seleccionado)
+    return getDocs(p);
+  }
+
 }

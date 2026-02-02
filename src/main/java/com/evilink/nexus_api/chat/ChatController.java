@@ -20,17 +20,21 @@ public class ChatController {
   private final OpenAiResponsesClient openAi;
   private final ProductDocsService docsService;
   private final ChatMemoryService memory;
+  private final RateLimiterService rateLimiter;
+
 
   public ChatController(
       @Value("${nexus.web-secret:}") String webSecret,
       OpenAiResponsesClient openAi,
       ProductDocsService docsService,
-      ChatMemoryService memory
+      ChatMemoryService memory,
+      RateLimiterService rateLimiter
   ) {
     this.nexusWebSecret = webSecret;
     this.openAi = openAi;
     this.docsService = docsService;
     this.memory = memory;
+    this.rateLimiter = rateLimiter;
   }
 
   @PostMapping("/chat")
@@ -44,6 +48,10 @@ public class ChatController {
         return Map.of("ok", false, "error", "Unauthorized");
       }
     }
+    if (!rateLimiter.allow(req.sessionId(), req.product())) {
+      return Map.of("ok", false, "error", "Rate limit: intenta de nuevo en 1 minuto");
+    }
+
 
     String product = req.product().trim().toLowerCase();
 
@@ -52,10 +60,10 @@ public class ChatController {
     UUID conversationId = conv.getId();
 
     // 2) (opcional) resumen si ya creció (antes de generar respuesta)
-    conv = memory.maybeSummarize(conv, 20);
+    conv = memory.maybeSummarize(conv, 40);
 
     // 3) docs del producto + recorte
-    String docs = docsService.trim(docsService.getDocs(product), 12000);
+    String docs = docsService.trim(docsService.getDocs(product), 14000);
 
     // 4) instrucciones
     String instructions = buildInstructions(product, docs);
@@ -99,6 +107,7 @@ public class ChatController {
     var msgs = memory.getLastMessages(conv.getId(), limit);
 
     var out = msgs.stream().map(m -> Map.of(
+        "id", m.getId().toString(),
         "role", m.getRole(),
         "text", m.getContent(),
         "ts", m.getCreatedAt().toString()
@@ -108,7 +117,13 @@ public class ChatController {
   }
 
   private String buildInstructions(String product, String docs) {
-    return """
+    boolean isGeneral = "evilink".equals(product) || "general".equals(product);
+
+    String focusRule = isGeneral
+        ? "- Puedes responder sobre Curpify, CryptoLink y evi_link.\n"
+        : "- Enfócate SOLO en el producto: %s.\n".formatted(product);
+      return """
+
 Eres Nexus, el chatbot oficial de evi_link.
 
 ESTILO:
@@ -124,7 +139,7 @@ REGLAS:
 
 DOCUMENTACIÓN DEL PRODUCTO (fuente principal):
 %s
-""".formatted(product, (docs == null ? "" : docs));
+""".formatted(focusRule, (docs == null ? "" : docs));
   }
 
   private String buildContextWithSummary(String summary, List<MessageEntity> msgsAsc) {
