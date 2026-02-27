@@ -3,8 +3,10 @@ package com.evilink.nexus_api.chat;
 import com.evilink.nexus_api.docs.ProductDocsService;
 import com.evilink.nexus_api.openai.OpenAiResponsesClient;
 import com.evilink.nexus_api.persistence.MessageEntity;
+import com.evilink.nexus_api.chat.McpDtos;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
@@ -176,4 +178,90 @@ CHAT RECIENTE:
       @NotBlank String product,
       @NotBlank String message
   ) {}
+  
+  @PostMapping("/mcp/chat")
+  public McpDtos.McpResponse chatMcp(
+      @RequestHeader(value = "x-web-secret", required = false) String webSecret,
+      @Valid @RequestBody ChatRequest req
+  ) {
+    // ✅ reutiliza TODO tu flujo actual
+    // (copiamos lo mínimo del método chat() y al final armamos MCPResponse)
+
+    if (nexusWebSecret != null && !nexusWebSecret.isBlank()) {
+      if (webSecret == null || !webSecret.equals(nexusWebSecret)) {
+        McpDtos.McpResponse r = new McpDtos.McpResponse();
+        r.responseVersion = "0.1";
+        r.traceId = "tr_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        r.answer = new McpDtos.McpResponse.Answer();
+        r.answer.format = "rich";
+        r.answer.summary = "Unauthorized";
+        r.answer.sections = List.of(notice("sec_notice_unauth", "error", "Unauthorized", null));
+        return r;
+      }
+    }
+
+    if (!rateLimiter.allow(req.sessionId(), req.product())) {
+      McpDtos.McpResponse r = baseMcp();
+      r.answer.summary = "Rate limit";
+      r.answer.sections = List.of(notice("sec_notice_rl", "warning", "Rate limit: intenta de nuevo en 1 minuto", null));
+      return r;
+    }
+
+    String product = req.product().trim().toLowerCase();
+
+    var conv = memory.getOrCreateConversation(req.sessionId(), product);
+    var conversationId = conv.getId();
+
+    conv = memory.maybeSummarize(conv, 40);
+
+    String docs = docsService.trim(docsService.getDocs(product), 14000);
+    String instructions = buildInstructions(product, docs);
+
+    var last = memory.getLastMessages(conversationId, 12);
+    String context = buildContextWithSummary(conv.getSummary(), last);
+
+    memory.saveMessage(conv, "user", req.message());
+
+    String answer = openAi.generateAnswerWithContext(instructions, context, req.message());
+
+    memory.saveMessage(conv, "assistant", answer);
+
+    // ✅ MCP response (v0.1): por ahora “text section”
+    McpDtos.McpResponse r = baseMcp();
+    r.answer.summary = answer.length() > 140 ? answer.substring(0, 140) + "…" : answer;
+
+    McpDtos.McpResponse.Section s = new McpDtos.McpResponse.Section();
+    s.id = "sec_text_1";
+    s.type = "text";
+    s.title = "Respuesta";
+    s.text = answer;
+
+    r.answer.sections = List.of(
+        notice("sec_notice_1", "info", "MCP v0.1 activo (por ahora render text).", "conversationId=" + conversationId),
+        s
+    );
+
+    return r;
+  }
+
+  private McpDtos.McpResponse baseMcp() {
+    McpDtos.McpResponse r = new McpDtos.McpResponse();
+    r.responseVersion = "0.1";
+    r.traceId = "tr_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+    r.answer = new McpDtos.McpResponse.Answer();
+    r.answer.format = "rich";
+    r.answer.summary = "";
+    r.answer.sections = List.of();
+    return r;
+  }
+
+  private McpDtos.McpResponse.Section notice(String id, String kind, String message, String details) {
+    McpDtos.McpResponse.Section n = new McpDtos.McpResponse.Section();
+    n.id = id;
+    n.type = "notice";
+    n.kind = kind;
+    n.message = message;
+    n.details = details;
+    return n;
+  }
 }
