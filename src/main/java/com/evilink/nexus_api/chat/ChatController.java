@@ -4,6 +4,7 @@ import com.evilink.nexus_api.docs.ProductDocsService;
 import com.evilink.nexus_api.openai.OpenAiResponsesClient;
 import com.evilink.nexus_api.persistence.MessageEntity;
 import com.evilink.nexus_api.chat.McpDtos;
+import com.evilink.nexus_api.tools.cryptolink.CryptoLinkClient;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 
@@ -23,6 +24,7 @@ public class ChatController {
   private final ProductDocsService docsService;
   private final ChatMemoryService memory;
   private final RateLimiterService rateLimiter;
+  private final CryptoLinkClient cryptoLink;
 
 
   public ChatController(
@@ -30,13 +32,15 @@ public class ChatController {
       OpenAiResponsesClient openAi,
       ProductDocsService docsService,
       ChatMemoryService memory,
-      RateLimiterService rateLimiter
+      RateLimiterService rateLimiter,
+      CryptoLinkClient cryptoLink
   ) {
     this.nexusWebSecret = webSecret;
     this.openAi = openAi;
     this.docsService = docsService;
     this.memory = memory;
     this.rateLimiter = rateLimiter;
+    this.cryptoLink = cryptoLink;
   }
 
   @PostMapping("/chat")
@@ -186,6 +190,62 @@ CHAT RECIENTE:
   ) {
     // ✅ reutiliza TODO tu flujo actual
     // (copiamos lo mínimo del método chat() y al final armamos MCPResponse)
+
+    String msg = req.message().toLowerCase();
+
+    boolean wantsSnapshot =
+        msg.contains("snapshot") ||
+        msg.contains("mood") ||
+        msg.contains("mercado") ||
+        msg.contains("kpi") ||
+        (msg.contains("btc") && (msg.contains("hoy") || msg.contains("precio")));
+
+    if (wantsSnapshot) {
+      Map<String, Object> resp = cryptoLink.getSnapshot();
+
+    if (resp == null || !(Boolean.TRUE.equals(resp.get("ok")))) {
+      McpDtos.McpResponse r = baseMcp();
+      r.answer.summary = "No pude obtener snapshot";
+      r.answer.sections = List.of(notice("sec_notice_snap_fail", "warning", "Snapshot no disponible por ahora.", String.valueOf(resp)));
+      return r;
+    }
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> snap = (Map<String, Object>) resp.get("snapshot");
+
+    String asOf = String.valueOf(snap.get("asOf"));
+    String provider = String.valueOf(snap.get("provider"));
+    String source = String.valueOf(snap.get("source"));
+    String fiat = String.valueOf(snap.get("fiat"));
+    String mood = String.valueOf(snap.get("marketMood"));
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> prices = (Map<String, Object>) snap.get("prices");
+
+    Object btc = prices != null ? prices.get("BTC") : null;
+    Object eth = prices != null ? prices.get("ETH") : null;
+
+    McpDtos.McpResponse r = baseMcp();
+    r.answer.summary = "Snapshot CryptoLink (" + mood + ")";
+
+    McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
+    sec.id = "sec_text_snapshot";
+    sec.type = "text";
+    sec.title = "Snapshot";
+    sec.text =
+        "Mood: " + mood + "\n" +
+        "BTC: " + (btc == null ? "N/D" : btc) + " " + fiat + "\n" +
+        "ETH: " + (eth == null ? "N/D" : eth) + " " + fiat + "\n" +
+        "asOf: " + asOf + "\n" +
+        "source: " + source + "\n" +
+        "provider: " + provider;
+
+    r.answer.sections = List.of(
+        notice("sec_notice_snapshot", "info", "Snapshot obtenido desde CryptoLink.", "asOf=" + asOf + " source=" + source),
+        sec
+    );
+    return r;
+  }
 
     if (nexusWebSecret != null && !nexusWebSecret.isBlank()) {
       if (webSecret == null || !webSecret.equals(nexusWebSecret)) {
