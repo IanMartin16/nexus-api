@@ -185,7 +185,7 @@ CHAT RECIENTE:
   ) {}
 
   private static final Set<String> KNOWN_SYMBOLS = Set.of(
-    "BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "AVAX", "DOT", "LINK", "MATIC"
+    "BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "AVAX", "DOT", "LINK", "BNB"
   );
 
   private List<String> extractSymbols(String message) {

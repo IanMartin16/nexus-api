@@ -14,14 +14,17 @@ public class CryptoLinkClient {
 
   private final WebClient http;
   private final Duration timeout;
+  private final String apiKey;
 
   public CryptoLinkClient(
       WebClient.Builder builder,
       @Value("${cryptolink.base-url:https://cryptolink.mx}") String baseUrl,
-      @Value("${cryptolink.timeout-ms:6000}") long timeoutMs
+      @Value("${cryptolink.timeout-ms:6000}") long timeoutMs,
+      @Value("${cryptolink.api-key:}") String apiKey
   ) {
     this.http = builder.baseUrl(baseUrl).build();
     this.timeout = Duration.ofMillis(timeoutMs);
+    this.apiKey = apiKey;
   }
 
   @SuppressWarnings("unchecked")
@@ -48,4 +51,5 @@ public class CryptoLinkClient {
         .timeout(timeout)
         .block();
     }
+    
 }
