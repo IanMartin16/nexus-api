@@ -49,10 +49,17 @@ public class McpDtos {
     public static class ToolResult {
       public String id;
       public String tool;
+      public String toolCallId;
+      public Long latencyMs;
+      public String source;
+      public String provider;
+      public String asOf;
       public boolean ok;
+      public String valueOf;
       public Map<String, Object> meta;
       public Object data;
-      public Map<String, Object> error;
+      public String error;
+      public Map<String, Object> output;
     }
   }
 

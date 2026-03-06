@@ -201,12 +201,29 @@ CHAT RECIENTE:
         (msg.contains("btc") && (msg.contains("hoy") || msg.contains("precio")));
 
     if (wantsSnapshot) {
-      Map<String, Object> resp = cryptoLink.getSnapshot();
-
-    if (resp == null || !(Boolean.TRUE.equals(resp.get("ok")))) {
       McpDtos.McpResponse r = baseMcp();
-      r.answer.summary = "No pude obtener snapshot";
-      r.answer.sections = List.of(notice("sec_notice_snap_fail", "warning", "Snapshot no disponible por ahora.", String.valueOf(resp)));
+      r.answer.summary = "MCP v0.1";
+
+      McpDtos.McpResponse.ToolCall tc = new McpDtos.McpResponse.ToolCall();
+        tc.id = "tc_snapshot_1";
+        tc.tool = "cryptolink.snapshot.get";
+        tc.input = Map.of("fiat", "USD");
+        r.toolCalls = List.of(tc);
+
+      long t0 = System.currentTimeMillis();
+      Map<String, Object> resp = cryptoLink.getSnapshot();
+      long ms = System.currentTimeMillis() - t0;
+
+      if (resp == null || !Boolean.TRUE.equals(resp.get("ok"))) {
+        McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
+          tr.toolCallId = "tc_snapshot_1";
+          tr.ok = false;
+          tr.latencyMs = ms;
+          tr.error = String.valueOf(resp);
+          r.toolResults = List.of(tr);
+        // ... return r con notice
+          r.answer.summary = "No pude obtener snapshot";
+          r.answer.sections = List.of(notice("sec_notice_snap_fail", "warning", "Snapshot no disponible por ahora.", String.valueOf(resp)));
       return r;
     }
 
@@ -225,7 +242,16 @@ CHAT RECIENTE:
     Object btc = prices != null ? prices.get("BTC") : null;
     Object eth = prices != null ? prices.get("ETH") : null;
 
-    McpDtos.McpResponse r = baseMcp();
+      // toolResult success
+    McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
+    tr.toolCallId = "tc_snapshot_1";
+    tr.ok = true;
+    tr.latencyMs = ms;
+    tr.source = source;
+    tr.provider = provider;
+    tr.asOf = asOf;
+    r.toolResults = List.of(tr);
+
     r.answer.summary = "Snapshot CryptoLink (" + mood + ")";
 
     McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
