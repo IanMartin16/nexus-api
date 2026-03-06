@@ -182,6 +182,22 @@ CHAT RECIENTE:
       @NotBlank String product,
       @NotBlank String message
   ) {}
+
+  private String fmtMoney(Object n) {
+      try {
+      double d = Double.parseDouble(String.valueOf(n));
+      return String.format("%,.2f", d);
+    } catch (Exception e) {
+      return String.valueOf(n);
+    }
+  }
+
+    private String shortIso(String iso) {
+      if (iso == null) return "";
+      return iso.length() >= 16 ? 
+      iso.substring(0, 16).replace("T", " ") + " UTC" 
+      : iso;
+  }
   
   @PostMapping("/mcp/chat")
   public McpDtos.McpResponse chatMcp(
@@ -260,10 +276,8 @@ CHAT RECIENTE:
       kpis.title = "Market Snapshot";
       kpis.items = List.of(
         Map.of("label", "Mood", "value", mood),
-        Map.of("label", "BTC", "value", String.valueOf(btc), "unit", fiat),
-        Map.of("label", "ETH", "value", String.valueOf(eth), "unit", fiat),
-        Map.of("label", "Source", "value", source),
-        Map.of("label", "asOf", "value", asOf)
+        Map.of("label", "BTC", "value", fmtMoney(btc), "unit", fiat),
+        Map.of("label", "ETH", "value", fmtMoney(eth), "unit", fiat)
     );
 
     McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
@@ -271,15 +285,16 @@ CHAT RECIENTE:
     sec.type = "text";
     sec.title = "Snapshot";
     sec.text =
-        "Mood: " + mood + "\n" +
-        "BTC: " + (btc == null ? "N/D" : btc) + " " + fiat + "\n" +
-        "ETH: " + (eth == null ? "N/D" : eth) + " " + fiat + "\n" +
-        "asOf: " + asOf + "\n" +
-        "source: " + source + "\n" +
-        "provider: " + provider;
+    "Mercado en estado **" + mood + "**.\n" +
+    "BTC cotiza en **" + fmtMoney(btc) + " " + fiat + "** y ETH en **" + fmtMoney(eth) + " " + fiat + "**.";
 
     r.answer.sections = List.of(
-        notice("sec_notice_snapshot", "info", "Snapshot obtenido desde CryptoLink.", "asOf=" + asOf + " source=" + source),
+        notice(
+          "sec_notice_snapshot",
+          "info",
+          "Snapshot obtenido desde CryptoLink.",
+          "asOf=" + shortIso(asOf) + " · source=" + source + " · provider=" + provider
+          ),
         kpis,
         sec
     );
