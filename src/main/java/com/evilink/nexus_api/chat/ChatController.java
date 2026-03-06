@@ -203,10 +203,10 @@ CHAT RECIENTE:
   }
   
   @PostMapping("/mcp/chat")
-public McpDtos.McpResponse chatMcp(
+  public McpDtos.McpResponse chatMcp(
     @RequestHeader(value = "x-web-secret", required = false) String webSecret,
     @Valid @RequestBody ChatRequest req
-) {
+  ) {
   // =========================
   // 0) AUTH
   // =========================
@@ -356,6 +356,12 @@ public McpDtos.McpResponse chatMcp(
     long t0 = System.currentTimeMillis();
     Map<String, Object> resp = cryptoLink.getPrices(symbols, "MXN");
     long ms = System.currentTimeMillis() - t0;
+    Map<String, Object> sparkResp = null;
+      try {
+        sparkResp = cryptoLink.getPriceSpark(symbols, "MXN");
+      } catch (Exception ignored) {
+      // si falla spark, no se rompe prices
+      }
 
     if (resp == null || !Boolean.TRUE.equals(resp.get("ok"))) {
       McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
@@ -386,6 +392,23 @@ public McpDtos.McpResponse chatMcp(
     tr.source = priceSource;
     tr.asOf = priceAsOf;
     r.toolResults = List.of(tr);
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> series =
+        (sparkResp != null && Boolean.TRUE.equals(sparkResp.get("ok")))
+            ? (Map<String, Object>) sparkResp.get("series")
+            : Map.of();
+
+    McpDtos.McpResponse.Section spark = new McpDtos.McpResponse.Section();
+      spark.id = "sec_spark_prices";
+      spark.type = "sparkline";
+      spark.title = "Tendencia reciente";
+      spark.items = symbols.stream()
+        .map(sym -> Map.<String, Object>of(
+          "label", sym,
+          "points", series.get(sym) == null ? List.of() : series.get(sym)
+      ))
+      .toList();        
 
     McpDtos.McpResponse.Section kpis = new McpDtos.McpResponse.Section();
     kpis.id = "sec_kpis_prices";
@@ -420,6 +443,7 @@ public McpDtos.McpResponse chatMcp(
             "asOf=" + shortIso(priceAsOf) + " · source=" + priceSource
         ),
         kpis,
+        spark,
         sec
     );
 

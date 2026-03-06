@@ -52,4 +52,20 @@ public class CryptoLinkClient {
         .timeout(timeout)
         .block();
   }
+  @SuppressWarnings("unchecked")
+  public Map<String, Object> getPriceSpark(List<String> symbols, String fiat) {
+    String symbolsCsv = String.join(",", symbols);
+
+    return http.get()
+        .uri(uriBuilder -> uriBuilder
+            .path("/v1/prices/spark")
+            .queryParam("symbols", symbolsCsv)
+            .queryParam("fiat", fiat)
+            .build())
+        .header("x-api-key", apiKey)
+        .retrieve()
+        .bodyToMono(Map.class)
+        .timeout(timeout)
+        .block();
+  }
 }
