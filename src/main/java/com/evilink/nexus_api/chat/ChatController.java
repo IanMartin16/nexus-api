@@ -254,6 +254,18 @@ CHAT RECIENTE:
 
     r.answer.summary = "Snapshot CryptoLink (" + mood + ")";
 
+    McpDtos.McpResponse.Section kpis = new McpDtos.McpResponse.Section();
+      kpis.id = "sec_kpis_snapshot";
+      kpis.type = "kpi_grid";
+      kpis.title = "Market Snapshot";
+      kpis.items = List.of(
+        Map.of("label", "Mood", "value", mood),
+        Map.of("label", "BTC", "value", String.valueOf(btc), "unit", fiat),
+        Map.of("label", "ETH", "value", String.valueOf(eth), "unit", fiat),
+        Map.of("label", "Source", "value", source),
+        Map.of("label", "asOf", "value", asOf)
+    );
+
     McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
     sec.id = "sec_text_snapshot";
     sec.type = "text";
@@ -268,6 +280,7 @@ CHAT RECIENTE:
 
     r.answer.sections = List.of(
         notice("sec_notice_snapshot", "info", "Snapshot obtenido desde CryptoLink.", "asOf=" + asOf + " source=" + source),
+        kpis,
         sec
     );
     return r;
