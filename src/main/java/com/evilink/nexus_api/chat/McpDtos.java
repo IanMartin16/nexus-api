@@ -44,10 +44,12 @@ public class McpDtos {
       public String version;
       public Map<String, Object> input;
       public Map<String, Object> policy;
+      public String fiat;
     }
 
     public static class ToolResult {
       public String id;
+      public String fiat;
       public String tool;
       public String toolCallId;
       public Long latencyMs;

@@ -6,6 +6,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Duration;
 import java.util.Map;
+import java.util.List;
+
 
 @Component
 public class CryptoLinkClient {
@@ -31,4 +33,19 @@ public class CryptoLinkClient {
         .timeout(timeout)
         .block();
   }
+  @SuppressWarnings("unchecked")
+    public Map<String, Object> getPrices(List<String> symbols, String fiat) {
+      String symbolsCsv = String.join(",", symbols);
+
+      return http.get()
+        .uri(uriBuilder -> uriBuilder
+            .path("/v1/prices")
+            .queryParam("symbols", symbolsCsv)
+            .queryParam("fiat", fiat)
+            .build())
+        .retrieve()
+        .bodyToMono(Map.class)
+        .timeout(timeout)
+        .block();
+    }
 }
