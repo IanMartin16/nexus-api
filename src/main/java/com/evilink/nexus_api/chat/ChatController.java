@@ -336,7 +336,7 @@ CHAT RECIENTE:
     McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
     sec.id = "sec_text_prices";
     sec.type = "text";
-    sec.title = "Precios";
+    sec.title = "Resumen";
     sec.text = symbols.stream()
         .map(sym -> sym + " cotiza en **" + fmtMoney(priceMap.get(sym)) + " " + priceFiat + "**.")
         .reduce((a, b) -> a + "\n" + b)
@@ -459,9 +459,119 @@ CHAT RECIENTE:
     return r;
   }
 
+  // =========================
+  // 4) TRENDS
+  // =========================
+
+  List<String> trendSymbols = extractSymbols(req.message());
+  if (trendSymbols.isEmpty()) {
+    trendSymbols = List.of("BTC", "ETH", "SOL");
+  }
+
+  boolean wantsTrends =
+      msg.contains("trend") ||
+      msg.contains("trends") ||
+      msg.contains("tendencia") ||
+      msg.contains("tendencias") ||
+      msg.contains("movers") ||
+      msg.contains("top movers") ||
+      msg.contains("que subio") ||
+      msg.contains("qué subió") ||
+      msg.contains("que esta fuerte") ||
+      msg.contains("qué está fuerte");
+
+  if (wantsTrends) {
+    McpDtos.McpResponse r = baseMcp();
+
+    McpDtos.McpResponse.ToolCall tc = new McpDtos.McpResponse.ToolCall();
+    tc.id = "tc_trends_1";
+    tc.tool = "cryptolink.trends.get";
+    tc.input = Map.of(
+        "symbols", trendSymbols,
+        "fiat", "MXN"
+    );
+    r.toolCalls = List.of(tc);
+
+    long t0 = System.currentTimeMillis();
+    Map<String, Object> resp = cryptoLink.getTrends(trendSymbols, "MXN");
+    long ms = System.currentTimeMillis() - t0;
+
+    if (resp == null || !Boolean.TRUE.equals(resp.get("ok"))) {
+      McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
+      tr.toolCallId = "tc_trends_1";
+      tr.ok = false;
+      tr.latencyMs = ms;
+      tr.error = "trends_not_available: " + String.valueOf(resp);
+      r.toolResults = List.of(tr);
+
+      r.answer.summary = "No pude obtener tendencias";
+      r.answer.sections = List.of(
+          notice("sec_notice_trends_fail", "warning", "Tendencias no disponibles por ahora.", String.valueOf(resp))
+      );
+      return r;
+    }
+
+    String trendFiat = String.valueOf(resp.get("fiat"));
+    String trendSource = String.valueOf(resp.get("source"));
+    String trendAsOf = String.valueOf(resp.get("ts"));
+
+    @SuppressWarnings("unchecked")
+    List<Map<String, Object>> trends = (List<Map<String, Object>>) resp.get("trends");
+
+    McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
+    tr.toolCallId = "tc_trends_1";
+    tr.ok = true;
+    tr.latencyMs = ms;
+    tr.source = trendSource;
+    tr.asOf = trendAsOf;
+    r.toolResults = List.of(tr);
+
+    McpDtos.McpResponse.Section kpis = new McpDtos.McpResponse.Section();
+    kpis.id = "sec_kpis_trends";
+    kpis.type = "kpi_grid";
+    kpis.title = "Market Trends";
+    kpis.items = trends.stream()
+        .limit(3)
+        .map(row -> Map.<String, Object>of(
+            "label", String.valueOf(row.get("symbol")),
+            "value", String.valueOf(row.get("direction")).toUpperCase(),
+            "unit", fmtPct(row.get("changePct"))
+        ))
+        .toList();
+
+    McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
+    sec.id = "sec_text_trends";
+    sec.type = "text";
+    sec.title = "Tendencias";
+    sec.text = trends.stream()
+        .map(row -> {
+          String symbol = String.valueOf(row.get("symbol"));
+          String direction = String.valueOf(row.get("direction"));
+          String changePct = fmtPct(row.get("changePct"));
+          Object last = row.get("last");
+          return symbol + " está **" + direction + "** con variación de **" + changePct + "** y último precio de **" + fmtMoney(last) + " " + trendFiat + "**.";
+        })
+        .reduce((a, b) -> a + "\n" + b)
+        .orElse("Sin datos.");
+
+    r.answer.summary = "Tendencias del mercado";
+
+    r.answer.sections = List.of(
+        notice(
+            "sec_notice_trends",
+            "info",
+            "Tendencias obtenidas desde CryptoLink.",
+            "asOf=" + shortIso(trendAsOf) + " · source=" + trendSource
+        ),
+        kpis,
+        sec
+    );
+
+    return r;
+  }
 
   // =========================
-  // 4) FALLBACK LLM
+  // 5) FALLBACK LLM
   // =========================
   var conv = memory.getOrCreateConversation(req.sessionId(), product);
   var conversationId = conv.getId();
@@ -521,6 +631,15 @@ CHAT RECIENTE:
       try {
       double d = Double.parseDouble(String.valueOf(n));
       return String.format("%,.2f", d);
+    } catch (Exception e) {
+      return String.valueOf(n);
+    }
+  }
+
+  private String fmtPct(Object n) {
+    try {
+      double d = Double.parseDouble(String.valueOf(n));
+      return String.format("%,.2f%%", d);
     } catch (Exception e) {
       return String.valueOf(n);
     }
