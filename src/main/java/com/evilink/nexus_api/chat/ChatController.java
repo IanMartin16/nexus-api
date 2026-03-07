@@ -241,108 +241,19 @@ CHAT RECIENTE:
   String product = req.product().trim().toLowerCase();
 
   // =========================
-  // 2) SNAPSHOT TOOL
-  // =========================
-  boolean wantsSnapshot =
-      msg.contains("snapshot") ||
-      msg.contains("mood") ||
-      msg.contains("mercado") ||
-      msg.contains("kpi") ||
-      (msg.contains("btc") && (msg.contains("hoy") || msg.contains("precio")));
-
-  if (wantsSnapshot) {
-    McpDtos.McpResponse r = baseMcp();
-
-    McpDtos.McpResponse.ToolCall tc = new McpDtos.McpResponse.ToolCall();
-    tc.id = "tc_snapshot_1";
-    tc.tool = "cryptolink.snapshot.get";
-    tc.input = Map.of("fiat", "USD");
-    r.toolCalls = List.of(tc);
-
-    long t0 = System.currentTimeMillis();
-    Map<String, Object> resp = cryptoLink.getSnapshot();
-    long ms = System.currentTimeMillis() - t0;
-
-    if (resp == null || !Boolean.TRUE.equals(resp.get("ok"))) {
-      McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
-      tr.toolCallId = "tc_snapshot_1";
-      tr.ok = false;
-      tr.latencyMs = ms;
-      tr.error =  "snapshot_not_available" + String.valueOf(resp);
-      r.toolResults = List.of(tr);
-
-      r.answer.summary = "No pude obtener snapshot";
-      r.answer.sections = List.of(
-          notice("sec_notice_snap_fail", "warning", "Snapshot no disponible por ahora.", String.valueOf(resp))
-      );
-      return r;
-    }
-
-    @SuppressWarnings("unchecked")
-    Map<String, Object> snap = (Map<String, Object>) resp.get("snapshot");
-
-    String asOf = String.valueOf(snap.get("asOf"));
-    String provider = String.valueOf(snap.get("provider"));
-    String source = String.valueOf(snap.get("source"));
-    String fiat = String.valueOf(snap.get("fiat"));
-    String mood = String.valueOf(snap.get("marketMood"));
-
-    @SuppressWarnings("unchecked")
-    Map<String, Object> prices = (Map<String, Object>) snap.get("prices");
-
-    Object btc = prices != null ? prices.get("BTC") : null;
-    Object eth = prices != null ? prices.get("ETH") : null;
-
-    McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
-    tr.toolCallId = "tc_snapshot_1";
-    tr.ok = true;
-    tr.latencyMs = ms;
-    tr.source = source;
-    tr.provider = provider;
-    tr.asOf = asOf;
-    r.toolResults = List.of(tr);
-
-    r.answer.summary = "Snapshot CryptoLink (" + mood + ")";
-
-    McpDtos.McpResponse.Section kpis = new McpDtos.McpResponse.Section();
-    kpis.id = "sec_kpis_snapshot";
-    kpis.type = "kpi_grid";
-    kpis.title = "Market Snapshot";
-    kpis.items = List.of(
-        Map.of("label", "Mood", "value", mood),
-        Map.of("label", "BTC", "value", fmtMoney(btc), "unit", fiat),
-        Map.of("label", "ETH", "value", fmtMoney(eth), "unit", fiat)
-    );
-
-    McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
-    sec.id = "sec_text_snapshot";
-    sec.type = "text";
-    sec.title = "Snapshot";
-    sec.text =
-        "Mercado en estado **" + mood + "**.\n" +
-        "BTC cotiza en **" + fmtMoney(btc) + " " + fiat + "** y ETH en **" + fmtMoney(eth) + " " + fiat + "**.";
-
-    r.answer.sections = List.of(
-        notice(
-            "sec_notice_snapshot",
-            "info",
-            "Snapshot obtenido desde CryptoLink.",
-            "asOf=" + shortIso(asOf) + " · source=" + source + " · provider=" + provider
-        ),
-        kpis,
-        sec
-    );
-
-    return r;
-  }
-
-  // =========================
-  // 3) PRICES TOOL
+  // 2) PRICES TOOL
   // =========================
   List<String> symbols = extractSymbols(req.message());
   boolean wantsPrices =
       !symbols.isEmpty() &&
-      (msg.contains("precio") || msg.contains("price") || msg.contains("cotiza") || msg.contains("vale") || msg.contains("cuanto"));
+      (
+        msg.contains("precio") || 
+        msg.contains("price") || 
+        msg.contains("cotiza") || 
+        msg.contains("vale") || 
+        msg.contains("valor") || 
+        msg.contains("cuánto") ||
+        msg.contains("cuanto"));
 
   if (wantsPrices) {
     McpDtos.McpResponse r = baseMcp();
@@ -449,6 +360,105 @@ CHAT RECIENTE:
 
     return r;
   }
+
+  // =========================
+  // 3) SNAPSHOT TOOL
+  // =========================
+  boolean wantsSnapshot =
+      msg.contains("snapshot") ||
+      msg.contains("mood") ||
+      msg.contains("mercado") ||
+      msg.contains("kpi") ||
+      msg.contains("overview") ||
+      msg.contains("resumen") ||
+      (msg.contains("btc") && (msg.contains("hoy") || msg.contains("precio")));
+
+  if (wantsSnapshot) {
+    McpDtos.McpResponse r = baseMcp();
+
+    McpDtos.McpResponse.ToolCall tc = new McpDtos.McpResponse.ToolCall();
+    tc.id = "tc_snapshot_1";
+    tc.tool = "cryptolink.snapshot.get";
+    tc.input = Map.of("fiat", "USD");
+    r.toolCalls = List.of(tc);
+
+    long t0 = System.currentTimeMillis();
+    Map<String, Object> resp = cryptoLink.getSnapshot();
+    long ms = System.currentTimeMillis() - t0;
+
+    if (resp == null || !Boolean.TRUE.equals(resp.get("ok"))) {
+      McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
+      tr.toolCallId = "tc_snapshot_1";
+      tr.ok = false;
+      tr.latencyMs = ms;
+      tr.error =  "snapshot_not_available" + String.valueOf(resp);
+      r.toolResults = List.of(tr);
+
+      r.answer.summary = "No pude obtener snapshot";
+      r.answer.sections = List.of(
+          notice("sec_notice_snap_fail", "warning", "Snapshot no disponible por ahora.", String.valueOf(resp))
+      );
+      return r;
+    }
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> snap = (Map<String, Object>) resp.get("snapshot");
+
+    String asOf = String.valueOf(snap.get("asOf"));
+    String provider = String.valueOf(snap.get("provider"));
+    String source = String.valueOf(snap.get("source"));
+    String fiat = String.valueOf(snap.get("fiat"));
+    String mood = String.valueOf(snap.get("marketMood"));
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> prices = (Map<String, Object>) snap.get("prices");
+
+    Object btc = prices != null ? prices.get("BTC") : null;
+    Object eth = prices != null ? prices.get("ETH") : null;
+
+    McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
+    tr.toolCallId = "tc_snapshot_1";
+    tr.ok = true;
+    tr.latencyMs = ms;
+    tr.source = source;
+    tr.provider = provider;
+    tr.asOf = asOf;
+    r.toolResults = List.of(tr);
+
+    r.answer.summary = "Snapshot CryptoLink (" + mood + ")";
+
+    McpDtos.McpResponse.Section kpis = new McpDtos.McpResponse.Section();
+    kpis.id = "sec_kpis_snapshot";
+    kpis.type = "kpi_grid";
+    kpis.title = "Market Snapshot";
+    kpis.items = List.of(
+        Map.of("label", "Mood", "value", mood),
+        Map.of("label", "BTC", "value", fmtMoney(btc), "unit", fiat),
+        Map.of("label", "ETH", "value", fmtMoney(eth), "unit", fiat)
+    );
+
+    McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
+    sec.id = "sec_text_snapshot";
+    sec.type = "text";
+    sec.title = "Snapshot";
+    sec.text =
+        "Mercado en estado **" + mood + "**.\n" +
+        "BTC cotiza en **" + fmtMoney(btc) + " " + fiat + "** y ETH en **" + fmtMoney(eth) + " " + fiat + "**.";
+
+    r.answer.sections = List.of(
+        notice(
+            "sec_notice_snapshot",
+            "info",
+            "Snapshot obtenido desde CryptoLink.",
+            "asOf=" + shortIso(asOf) + " · source=" + source + " · provider=" + provider
+        ),
+        kpis,
+        sec
+    );
+
+    return r;
+  }
+
 
   // =========================
   // 4) FALLBACK LLM
