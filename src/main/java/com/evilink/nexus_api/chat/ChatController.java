@@ -460,7 +460,160 @@ CHAT RECIENTE:
   }
 
   // =========================
-  // 4) TRENDS
+  // 4) MOVERS
+  // =========================
+
+  List<String> moverSymbols = extractSymbols(req.message());
+  if (moverSymbols.isEmpty()) {
+    moverSymbols = List.of("BTC", "ETH", "SOL");
+  }
+
+  boolean wantsMovers =
+      msg.contains("movers") ||
+      msg.contains("top movers") ||
+      msg.contains("gainers") ||
+      msg.contains("losers") ||
+      msg.contains("que subio mas") ||
+      msg.contains("qué subió más") ||
+      msg.contains("que bajo mas") ||
+      msg.contains("qué bajó más") ||
+      msg.contains("que se movio mas") ||
+      msg.contains("qué se movió más");
+
+  if (wantsMovers) {
+    McpDtos.McpResponse r = baseMcp();
+
+    McpDtos.McpResponse.ToolCall tc = new McpDtos.McpResponse.ToolCall();
+    tc.id = "tc_movers_1";
+    tc.tool = "cryptolink.movers.get";
+    tc.input = Map.of(
+        "symbols", moverSymbols,
+        "fiat", "MXN",
+        "limit", 3
+    );
+    r.toolCalls = List.of(tc);
+
+    long t0 = System.currentTimeMillis();
+    Map<String, Object> resp = cryptoLink.getMovers(moverSymbols, "MXN", 3);
+    long ms = System.currentTimeMillis() - t0;
+
+    if (resp == null || !Boolean.TRUE.equals(resp.get("ok"))) {
+      McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
+      tr.toolCallId = "tc_movers_1";
+      tr.ok = false;
+      tr.latencyMs = ms;
+      tr.error = "movers_not_available: " + String.valueOf(resp);
+      r.toolResults = List.of(tr);
+
+      r.answer.summary = "No pude obtener movers";
+      r.answer.sections = List.of(
+          notice("sec_notice_movers_fail", "warning", "Movers no disponibles por ahora.", String.valueOf(resp))
+      );
+      return r;
+    }
+
+    String moverFiat = String.valueOf(resp.get("fiat"));
+    String moverSource = String.valueOf(resp.get("source"));
+    String moverAsOf = String.valueOf(resp.get("ts"));
+
+    @SuppressWarnings("unchecked")
+    List<Map<String, Object>> gainers = (List<Map<String, Object>>) resp.get("gainers");
+
+    @SuppressWarnings("unchecked")
+    List<Map<String, Object>> losers = (List<Map<String, Object>>) resp.get("losers");
+
+    McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
+    tr.toolCallId = "tc_movers_1";
+    tr.ok = true;
+    tr.latencyMs = ms;
+    tr.source = moverSource;
+    tr.asOf = moverAsOf;
+    r.toolResults = List.of(tr);
+
+    // KPIs: top gainer + top loser
+    McpDtos.McpResponse.Section kpis = new McpDtos.McpResponse.Section();
+    kpis.id = "sec_kpis_movers";
+    kpis.type = "kpi_grid";
+    kpis.title = "Top Movers";
+
+    List<Map<String, Object>> moverItems = new java.util.ArrayList<>();
+
+    if (gainers != null && !gainers.isEmpty()) {
+      Map<String, Object> g = gainers.get(0);
+      moverItems.add(Map.of(
+          "label", "Top Gainer",
+          "value", String.valueOf(g.get("symbol")),
+          "unit", fmtPct(g.get("changePct"))
+      ));
+    }
+
+    if (losers != null && !losers.isEmpty()) {
+      Map<String, Object> l = losers.get(0);
+      moverItems.add(Map.of(
+          "label", "Top Loser",
+          "value", String.valueOf(l.get("symbol")),
+          "unit", fmtPct(l.get("changePct"))
+      ));
+    }
+
+    if (moverItems.isEmpty()) {
+      moverItems.add(Map.of(
+          "label", "Estado",
+          "value", "Sin movers claros",
+          "unit", ""
+      ));
+    }
+
+    kpis.items = moverItems;
+
+    McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
+    sec.id = "sec_text_movers";
+    sec.type = "text";
+    sec.title = "Movers";
+
+    String gainersText = (gainers == null || gainers.isEmpty())
+        ? "No hay gainers claros por ahora."
+        : gainers.stream()
+            .map(row -> {
+              String symbol = String.valueOf(row.get("symbol"));
+              String pct = fmtPct(row.get("changePct"));
+              Object last = row.get("last");
+              return symbol + " lidera al alza con **" + pct + "** y último precio de **" + fmtMoney(last) + " " + moverFiat + "**.";
+            })
+            .reduce((a, b) -> a + "\n" + b)
+            .orElse("");
+
+    String losersText = (losers == null || losers.isEmpty())
+        ? "No hay losers claros por ahora."
+        : losers.stream()
+            .map(row -> {
+              String symbol = String.valueOf(row.get("symbol"));
+              String pct = fmtPct(row.get("changePct"));
+              Object last = row.get("last");
+              return symbol + " lidera a la baja con **" + pct + "** y último precio de **" + fmtMoney(last) + " " + moverFiat + "**.";
+            })
+            .reduce((a, b) -> a + "\n" + b)
+            .orElse("");
+
+    sec.text = gainersText + "\n\n" + losersText;
+
+    r.answer.summary = "Top movers del mercado";
+    r.answer.sections = List.of(
+        notice(
+            "sec_notice_movers",
+            "info",
+            "Movers obtenidos desde CryptoLink.",
+            "asOf=" + shortIso(moverAsOf) + " · source=" + moverSource
+        ),
+        kpis,
+        sec
+    );
+
+    return r;
+  }    
+
+  // =========================
+  // 5) TRENDS
   // =========================
 
   List<String> trendSymbols = extractSymbols(req.message());
@@ -571,7 +724,7 @@ CHAT RECIENTE:
   }
 
   // =========================
-  // 5) FALLBACK LLM
+  // 6) FALLBACK LLM
   // =========================
   var conv = memory.getOrCreateConversation(req.sessionId(), product);
   var conversationId = conv.getId();

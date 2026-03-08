@@ -54,6 +54,24 @@ public class CryptoLinkClient {
   }
 
   @SuppressWarnings("unchecked")
+  public Map<String, Object> getMovers(List<String> symbols, String fiat, int limit) {
+    String symbolsCsv = String.join(",", symbols);
+
+    return http.get()
+        .uri(uriBuilder -> uriBuilder
+            .path("/v1/movers")
+            .queryParam("symbols", symbolsCsv)
+            .queryParam("fiat", fiat)
+            .queryParam("limit", limit)
+            .build())
+        .header("x-api-key", apiKey)
+        .retrieve()
+        .bodyToMono(Map.class)
+        .timeout(timeout)
+        .block();
+  }
+
+  @SuppressWarnings("unchecked")
   public Map<String, Object> getTrends(List<String> symbols, String fiat) {
     String symbolsCsv = String.join(",", symbols);
 
