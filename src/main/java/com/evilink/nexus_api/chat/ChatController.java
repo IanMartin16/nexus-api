@@ -543,7 +543,8 @@ CHAT RECIENTE:
       moverItems.add(Map.of(
           "label", "Top Gainer",
           "value", String.valueOf(g.get("symbol")),
-          "unit", fmtPct(g.get("changePct"))
+          "unit", fmtPct(g.get("changePct")),
+          "tone", "up"
       ));
     }
 
@@ -552,7 +553,8 @@ CHAT RECIENTE:
       moverItems.add(Map.of(
           "label", "Top Loser",
           "value", String.valueOf(l.get("symbol")),
-          "unit", fmtPct(l.get("changePct"))
+          "unit", fmtPct(l.get("changePct")),
+          "tone", "down"
       ));
     }
 
@@ -569,7 +571,7 @@ CHAT RECIENTE:
     McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
     sec.id = "sec_text_movers";
     sec.type = "text";
-    sec.title = "Movers";
+    sec.title = "Resumen de movers";
 
     String gainersText = (gainers == null || gainers.isEmpty())
         ? "No hay gainers claros por ahora."
@@ -595,7 +597,7 @@ CHAT RECIENTE:
             .reduce((a, b) -> a + "\n" + b)
             .orElse("");
 
-    sec.text = gainersText + "\n\n" + losersText;
+    sec.text = "**Al Alza**\n" + gainersText + "\n\n" + "**A la Baja**\n" + losersText;
 
     r.answer.summary = "Top movers del mercado";
     r.answer.sections = List.of(
