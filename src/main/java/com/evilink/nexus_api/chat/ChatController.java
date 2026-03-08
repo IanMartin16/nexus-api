@@ -614,8 +614,156 @@ CHAT RECIENTE:
     return r;
   }    
 
+    // =========================
+    // 5) MOMENTUM
+    // =========================
+
+  List<String> momentumSymbols = extractSymbols(req.message());
+  if (momentumSymbols.isEmpty()) {
+    momentumSymbols = List.of("BTC", "ETH", "SOL");
+  }
+
+  boolean wantsMomentum =
+      msg.contains("momentum") ||
+      msg.contains("fuerza") ||
+      msg.contains("strength") ||
+      msg.contains("traccion") ||
+      msg.contains("tracción") ||
+      msg.contains("consistencia");
+
+  if (wantsMomentum) {
+    McpDtos.McpResponse r = baseMcp();
+
+    McpDtos.McpResponse.ToolCall tc = new McpDtos.McpResponse.ToolCall();
+    tc.id = "tc_momentum_1";
+    tc.tool = "cryptolink.momentum.get";
+    tc.input = Map.of(
+        "symbols", momentumSymbols,
+        "fiat", "MXN"
+    );
+    r.toolCalls = List.of(tc);
+
+    long t0 = System.currentTimeMillis();
+    Map<String, Object> resp = cryptoLink.getMomentum(momentumSymbols, "MXN");
+    long ms = System.currentTimeMillis() - t0;
+
+    if (resp == null || !Boolean.TRUE.equals(resp.get("ok"))) {
+      McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
+      tr.toolCallId = "tc_momentum_1";
+      tr.ok = false;
+      tr.latencyMs = ms;
+      tr.error = "momentum_not_available: " + String.valueOf(resp);
+      r.toolResults = List.of(tr);
+
+      r.answer.summary = "No pude obtener momentum";
+      r.answer.sections = List.of(
+          notice("sec_notice_momentum_fail", "warning", "Momentum no disponible por ahora.", String.valueOf(resp))
+      );
+      return r;
+    }
+
+    String momentumFiat = String.valueOf(resp.get("fiat"));
+    String momentumSource = String.valueOf(resp.get("source"));
+    String momentumAsOf = String.valueOf(resp.get("ts"));
+
+    @SuppressWarnings("unchecked")
+    List<Map<String, Object>> momentum = (List<Map<String, Object>>) resp.get("momentum");
+
+    McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
+    tr.toolCallId = "tc_momentum_1";
+    tr.ok = true;
+    tr.latencyMs = ms;
+    tr.source = momentumSource;
+    tr.asOf = momentumAsOf;
+    r.toolResults = List.of(tr);
+
+    List<Map<String, Object>> validMomentum = momentum == null
+        ? List.of()
+        : momentum.stream()
+            .filter(row -> !"insufficient-history".equals(String.valueOf(row.get("source"))))
+            .toList();
+
+    McpDtos.McpResponse.Section kpis = new McpDtos.McpResponse.Section();
+    kpis.id = "sec_kpis_momentum";
+    kpis.type = "kpi_grid";
+    kpis.title = "Momentum";
+
+    if (!validMomentum.isEmpty()) {
+      kpis.items = validMomentum.stream()
+          .limit(3)
+          .map(row -> {
+            String direction = String.valueOf(row.get("direction"));
+            String tone =
+                "up".equals(direction) ? "up" :
+                "down".equals(direction) ? "down" :
+                "neutral";
+
+            return Map.<String, Object>of(
+                "label", String.valueOf(row.get("symbol")),
+                "value", String.valueOf(row.get("strength")).toUpperCase(),
+                "unit", fmtPct(row.get("changePct")),
+                "tone", tone
+            );
+          })
+          .toList();
+    } else {
+      kpis.items = List.of(
+          Map.of(
+              "label", "Estado",
+              "value", "Madurando",
+              "unit", "sin histórico suficiente"
+          )
+      );
+    }
+
+    McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
+    sec.id = "sec_text_momentum";
+    sec.type = "text";
+    sec.title = "Momentum";
+
+    if (!validMomentum.isEmpty()) {
+      String useful = validMomentum.stream()
+          .map(row -> {
+            String symbol = String.valueOf(row.get("symbol"));
+            String direction = String.valueOf(row.get("direction"));
+            String strength = String.valueOf(row.get("strength"));
+            String pct = fmtPct(row.get("changePct"));
+            Object last = row.get("last");
+            return symbol + " muestra momentum **" + direction + "** con fuerza **" + strength + "**, variación de **" + pct + "** y último precio de **" + fmtMoney(last) + " " + momentumFiat + "**.";
+          })
+          .reduce((a, b) -> a + "\n" + b)
+          .orElse("Sin datos.");
+    
+      long insufficientCount = momentum.stream()
+          .filter(row -> "insufficient-history".equals(String.valueOf(row.get("source"))))
+          .count();
+
+      if (insufficientCount > 0) {
+        useful += "\n\nAlgunos activos aún no tienen suficiente histórico para evaluar momentum con confianza.";
+      }
+
+      sec.text = useful;
+    } else {
+      sec.text = "Momentum aún en formación. Se necesita más histórico para evaluar fuerza y consistencia del movimiento.";
+    }
+
+    r.answer.summary = "Momentum del mercado";
+    r.answer.sections = List.of(
+        notice(
+            "sec_notice_momentum",
+            "info",
+            "Momentum obtenido desde CryptoLink.",
+            "asOf=" + shortIso(momentumAsOf) + " · source=" + momentumSource
+        ),
+        kpis,
+        sec
+    );
+
+    return r;
+  }    
+
   // =========================
-  // 5) TRENDS
+  // 6) TRENDS
   // =========================
 
   List<String> trendSymbols = extractSymbols(req.message());
@@ -726,7 +874,7 @@ CHAT RECIENTE:
   }
 
   // =========================
-  // 6) FALLBACK LLM
+  // 7) FALLBACK LLM
   // =========================
   var conv = memory.getOrCreateConversation(req.sessionId(), product);
   var conversationId = conv.getId();

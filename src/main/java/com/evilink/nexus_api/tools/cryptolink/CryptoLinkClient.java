@@ -104,4 +104,21 @@ public class CryptoLinkClient {
         .timeout(timeout)
         .block();
   }
+
+  @SuppressWarnings("unchecked")
+  public Map<String, Object> getMomentum(List<String> symbols, String fiat) {
+    String symbolsCsv = String.join(",", symbols);
+
+    return http.get()
+        .uri(uriBuilder -> uriBuilder
+            .path("/v1/momentum")
+            .queryParam("symbols", symbolsCsv)
+            .queryParam("fiat", fiat)
+            .build())
+        .header("x-api-key", apiKey)
+        .retrieve()
+        .bodyToMono(Map.class)
+        .timeout(timeout)
+        .block();
+  }
 }
