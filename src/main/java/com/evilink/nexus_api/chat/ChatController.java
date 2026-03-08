@@ -729,7 +729,7 @@ CHAT RECIENTE:
             String strength = String.valueOf(row.get("strength"));
             String pct = fmtPct(row.get("changePct"));
             Object last = row.get("last");
-            return symbol + " muestra momentum **" + direction + "** con fuerza **" + strength + "**, variación de **" + pct + "** y último precio de **" + fmtMoney(last) + " " + momentumFiat + "**.";
+            return symbol + " muestra momentum **" + esDirection(direction) + "** con fuerza **" + esStrength(strength) + "**, variación de **" + pct + "** y último precio de **" + fmtMoney(last) + " " + momentumFiat + "**.";
           })
           .reduce((a, b) -> a + "\n" + b)
           .orElse("Sin datos.");
@@ -946,6 +946,24 @@ CHAT RECIENTE:
     } catch (Exception e) {
       return String.valueOf(n);
     }
+  }
+
+  private String esDirection(String direction) {
+    if (direction == null) return "estable";
+    return switch (direction.toLowerCase()) {
+      case "up" -> "alcista";
+      case "down" -> "bajista";
+      default -> "estable";
+    };
+  }
+
+  private String esStrength(String strength) {
+    if (strength == null) return "bajo";
+    return switch (strength.toLowerCase()) {
+      case "high" -> "alto";
+      case "medium" -> "medio";
+      default -> "bajo";
+    };
   }
 
     private String shortIso(String iso) {
