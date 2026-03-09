@@ -763,7 +763,126 @@ CHAT RECIENTE:
   }    
 
   // =========================
-  // 6) TRENDS
+  // 6) REGIME
+  // =========================
+
+  List<String> regimeSymbols = extractSymbols(req.message());
+    if (regimeSymbols.isEmpty()) {
+    regimeSymbols = List.of("BTC", "ETH", "SOL");
+  }
+
+  boolean wantsRegime =
+      msg.contains("regime") ||
+      msg.contains("market regime") ||
+      msg.contains("regimen") ||
+      msg.contains("régimen") ||
+      msg.contains("como esta el mercado") ||
+      msg.contains("cómo está el mercado") ||
+      msg.contains("sesgo del mercado") ||
+      msg.contains("estado del mercado");
+
+  if (wantsRegime) {
+    McpDtos.McpResponse r = baseMcp();
+
+    McpDtos.McpResponse.ToolCall tc = new McpDtos.McpResponse.ToolCall();
+    tc.id = "tc_regime_1";
+    tc.tool = "cryptolink.regime.get";
+    tc.input = Map.of(
+        "symbols", regimeSymbols,
+        "fiat", "MXN"
+    );
+    r.toolCalls = List.of(tc);
+
+    long t0 = System.currentTimeMillis();
+    Map<String, Object> resp = cryptoLink.getRegime(regimeSymbols, "MXN");
+    long ms = System.currentTimeMillis() - t0;
+
+    if (resp == null || !Boolean.TRUE.equals(resp.get("ok"))) {
+      McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
+      tr.toolCallId = "tc_regime_1";
+      tr.ok = false;
+      tr.latencyMs = ms;
+      tr.error = "regime_not_available: " + String.valueOf(resp);
+      r.toolResults = List.of(tr);
+
+      r.answer.summary = "No pude obtener el régimen del mercado";
+      r.answer.sections = List.of(
+          notice("sec_notice_regime_fail", "warning", "Régimen no disponible por ahora.", String.valueOf(resp))
+      );
+      return r;
+    }
+
+    String regimeFiat = String.valueOf(resp.get("fiat"));
+    String regimeSource = String.valueOf(resp.get("source"));
+    String regimeAsOf = String.valueOf(resp.get("ts"));
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> regime = (Map<String, Object>) resp.get("regime");
+
+    String state = String.valueOf(regime.get("state"));
+    Object score = regime.get("score");
+    Object confidence = regime.get("confidence");
+    String summary = String.valueOf(regime.get("summary"));
+
+    McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
+    tr.toolCallId = "tc_regime_1";
+    tr.ok = true;
+    tr.latencyMs = ms;
+    tr.source = regimeSource;
+    tr.asOf = regimeAsOf;
+    r.toolResults = List.of(tr);
+
+    McpDtos.McpResponse.Section kpis = new McpDtos.McpResponse.Section();
+    kpis.id = "sec_kpis_regime";
+    kpis.type = "kpi_grid";
+    kpis.title = "Régimen del mercado";
+    kpis.items = List.of(
+        Map.<String, Object>of(
+            "label", "Estado",
+            "value", esRegimeState(state),
+            "unit", "",
+            "tone", regimeTone(state)
+        ),
+        Map.<String, Object>of(
+            "label", "Confianza",
+            "value", fmtConfidence(confidence),
+            "unit", "",
+            "tone", regimeTone(state)
+        ),
+        Map.<String, Object>of(
+            "label", "Score",
+            "value", String.valueOf(score),
+            "unit", "",
+            "tone", regimeTone(state)
+        )
+    );
+
+    McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
+    sec.id = "sec_text_regime";
+    sec.type = "text";
+    sec.title = "Lectura del mercado";
+    sec.text =
+        "El mercado muestra un régimen **" + esRegimeState(state) + "** con confianza de **" +
+        fmtConfidence(confidence) + "** y score agregado de **" + score + "**.\n\n" +
+        summary;
+
+    r.answer.summary = "Régimen del mercado";
+    r.answer.sections = List.of(
+        notice(
+            "sec_notice_regime",
+            "info",
+            "Régimen obtenido desde CryptoLink.",
+            "asOf=" + shortIso(regimeAsOf) + " · source=" + regimeSource + " · fiat=" + regimeFiat
+        ),
+        kpis,
+        sec
+    );
+
+    return r;
+  }    
+
+  // =========================
+  // 7) TRENDS
   // =========================
 
   List<String> trendSymbols = extractSymbols(req.message());
@@ -874,7 +993,7 @@ CHAT RECIENTE:
   }
 
   // =========================
-  // 7) FALLBACK LLM
+  // 8) FALLBACK LLM
   // =========================
   var conv = memory.getOrCreateConversation(req.sessionId(), product);
   var conversationId = conv.getId();
@@ -964,6 +1083,34 @@ CHAT RECIENTE:
       case "medium" -> "medio";
       default -> "bajo";
     };
+  }
+
+  private String esRegimeState(String state) {
+    if (state == null) return "estable";
+   return switch (state.toLowerCase()) {
+      case "bullish" -> "alcista";
+      case "bearish" -> "bajista";
+      case "mixed" -> "mixto";
+      default -> "estable";
+    };
+  }
+
+  private String regimeTone(String state) {
+    if (state == null) return "neutral";
+    return switch (state.toLowerCase()) {
+      case "bullish" -> "up";
+      case "bearish" -> "down";
+      default -> "neutral";
+    };
+  }
+
+  private String fmtConfidence(Object n) {
+    try {
+      double d = Double.parseDouble(String.valueOf(n)) * 100.0;
+      return String.format("%,.0f%%", d);
+    } catch (Exception e) {
+      return String.valueOf(n);
+    }
   }
 
     private String shortIso(String iso) {
