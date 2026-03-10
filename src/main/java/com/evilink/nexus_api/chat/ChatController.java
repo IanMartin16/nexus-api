@@ -1038,10 +1038,145 @@ CHAT RECIENTE:
     );
 
     return r;
+  } 
+  
+    // =========================
+  // 8) ANOMALIES
+  // =========================
+  List<String> anomalySymbols = extractSymbols(req.message());
+  if (anomalySymbols.isEmpty()) {
+    anomalySymbols = List.of("BTC", "ETH", "SOL");
+  }
+
+  boolean wantsAnomalies =
+      msg.contains("anomalies") ||
+      msg.contains("anomaly") ||
+      msg.contains("anomalia") ||
+      msg.contains("anomalía") ||
+      msg.contains("anomalias") ||
+      msg.contains("anomalías") ||
+      msg.contains("movimiento inusual") ||
+      msg.contains("outlier") ||
+      msg.contains("hay algo raro") ||
+      msg.contains("ves algo raro");
+
+  if (wantsAnomalies) {
+    McpDtos.McpResponse r = baseMcp();
+
+    McpDtos.McpResponse.ToolCall tc = new McpDtos.McpResponse.ToolCall();
+    tc.id = "tc_anomalies_1";
+    tc.tool = "cryptolink.anomalies.get";
+    tc.input = Map.of(
+        "symbols", anomalySymbols,
+        "fiat", "MXN"
+    );
+    r.toolCalls = List.of(tc);
+
+    long t0 = System.currentTimeMillis();
+    Map<String, Object> resp = cryptoLink.getAnomalies(anomalySymbols, "MXN");
+    long ms = System.currentTimeMillis() - t0;
+
+    if (resp == null || !Boolean.TRUE.equals(resp.get("ok"))) {
+      McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
+      tr.toolCallId = "tc_anomalies_1";
+      tr.ok = false;
+      tr.latencyMs = ms;
+      tr.error = "anomalies_not_available: " + String.valueOf(resp);
+      r.toolResults = List.of(tr);
+
+      r.answer.summary = "No pude obtener anomalías";
+      r.answer.sections = List.of(
+          notice("sec_notice_anomaly_fail", "warning", "Anomalías no disponibles por ahora.", String.valueOf(resp))
+      );
+      return r;
+    }
+
+    String anomalyFiat = String.valueOf(resp.get("fiat"));
+    String anomalySource = String.valueOf(resp.get("source"));
+    String anomalyAsOf = String.valueOf(resp.get("ts"));
+    String anomalySummary = String.valueOf(resp.get("summary"));
+
+    @SuppressWarnings("unchecked")
+    List<Map<String, Object>> anomalies = (List<Map<String, Object>>) resp.get("anomalies");
+
+    McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
+    tr.toolCallId = "tc_anomalies_1";
+    tr.ok = true;
+    tr.latencyMs = ms;
+    tr.source = anomalySource;
+    tr.asOf = anomalyAsOf;
+    r.toolResults = List.of(tr);
+
+    long totalAnomalies = anomalies == null ? 0 : anomalies.size();
+
+    String dominantSeverity = "low";
+    if (anomalies != null && !anomalies.isEmpty()) {
+      if (anomalies.stream().anyMatch(a -> "high".equalsIgnoreCase(String.valueOf(a.get("severity"))))) {
+        dominantSeverity = "high";
+      } else if (anomalies.stream().anyMatch(a -> "medium".equalsIgnoreCase(String.valueOf(a.get("severity"))))) {
+        dominantSeverity = "medium";
+      }
+    }
+
+    McpDtos.McpResponse.Section kpis = new McpDtos.McpResponse.Section();
+    kpis.id = "sec_kpis_anomalies";
+    kpis.type = "kpi_grid";
+    kpis.title = "Anomalías";
+    kpis.items = List.of(
+        Map.<String, Object>of(
+            "label", "Detectadas",
+            "value", String.valueOf(totalAnomalies),
+            "unit", "",
+            "tone", severityTone(dominantSeverity)
+        ),
+        Map.<String, Object>of(
+            "label", "Severidad",
+            "value", esSeverity(dominantSeverity),
+            "unit", "",
+            "tone", severityTone(dominantSeverity)
+        )
+    );
+
+    McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
+    sec.id = "sec_text_anomalies";
+    sec.type = "text";
+    sec.title = "Lectura de anomalías";
+
+    if (anomalies == null || anomalies.isEmpty()) {
+      sec.text = anomalySummary;
+    } else {
+      String detailText = anomalies.stream()
+          .map(a -> {
+            String symbol = String.valueOf(a.get("symbol"));
+            String type = esAnomalyType(String.valueOf(a.get("type")));
+            String sev = esSeverity(String.valueOf(a.get("severity")));
+            String score = String.valueOf(a.get("score"));
+            String detail = String.valueOf(a.get("detail"));
+            return "- **" + symbol + "** · " + type + " (" + sev + ", score " + score + "): " + detail;
+          })
+          .reduce((x, y) -> x + "\n" + y)
+          .orElse("Sin anomalías.");
+
+      sec.text = anomalySummary + "\n\n" + detailText;
+     }
+
+    r.answer.summary = "Anomalías del mercado";
+    r.answer.sections = List.of(
+        notice(
+            "sec_notice_anomalies",
+            "info",
+            "Anomalías obtenidas desde CryptoLink.",
+            "asOf=" + shortIso(anomalyAsOf) + " · source=" + anomalySource + " · fiat=" + anomalyFiat
+        ),
+        kpis,
+        sec
+    );
+
+    return r;
   }    
 
   // =========================
-  // 8) SNAPSHOT TOOL
+  // 9) SNAPSHOT TOOL
   // =========================
   boolean wantsSnapshot =
       msg.contains("snapshot") ||
@@ -1139,7 +1274,7 @@ CHAT RECIENTE:
   }
 
   // =========================
-  // 9) FALLBACK LLM
+  // 10) FALLBACK LLM
   // =========================
   var conv = memory.getOrCreateConversation(req.sessionId(), product);
   var conversationId = conv.getId();
@@ -1284,4 +1419,12 @@ CHAT RECIENTE:
     };
   }
   
+  private String esAnomalyType(String type) {
+    if (type == null) return "movimiento inusual";
+    return switch (type.toLowerCase()) {
+      case "momentum_spike" -> "pico de momentum";
+      case "outlier_symbol" -> "símbolo fuera de patrón";
+      default -> "movimiento inusual";
+    };
+  }
 }
