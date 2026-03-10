@@ -1009,19 +1009,21 @@ CHAT RECIENTE:
     sec.type = "text";
     sec.title = "Lectura de riesgo";
 
-    String detailText = (flags == null || flags.isEmpty())
-        ? "No se detectan alertas relevantes por ahora."
-        : flags.stream()
-            .map(f -> {
-              String title = String.valueOf(f.get("title"));
-              String detail = String.valueOf(f.get("detail"));
-              String sev = esSeverity(String.valueOf(f.get("severity")));
-              return "- **" + title + "** (" + sev + "): " + detail;
-            })
-            .reduce((a, b) -> a + "\n" + b)
-            .orElse("Sin alertas.");
+    if (flags == null || flags.isEmpty()) {
+      sec.text = riskSummary;
+    } else {
+      String detailText = flags.stream()
+          .map(f -> {
+            String title = String.valueOf(f.get("title"));
+            String detail = String.valueOf(f.get("detail"));
+            String sev = esSeverity(String.valueOf(f.get("severity")));
+            return "- **" + title + "** (" + sev + "): " + detail;
+          })
+          .reduce((a, b) -> a + "\n" + b)
+          .orElse("Sin alertas.");
 
-    sec.text = riskSummary + "\n\n" + detailText;
+      sec.text = riskSummary + "\n\n" + detailText;
+    }
 
     r.answer.summary = "Banderas de riesgo del mercado";
     r.answer.sections = List.of(
