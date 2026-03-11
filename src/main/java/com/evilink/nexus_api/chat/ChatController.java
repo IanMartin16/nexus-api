@@ -1175,8 +1175,117 @@ CHAT RECIENTE:
     return r;
   }    
 
+    // =========================
+  // 9) Market Health
   // =========================
-  // 9) SNAPSHOT TOOL
+
+  List<String> marketHealthSymbols = extractSymbols(req.message());
+  if (marketHealthSymbols.isEmpty()) {
+    marketHealthSymbols = List.of("BTC", "ETH", "SOL");
+  }
+
+  boolean wantsMarketHealth =
+      msg.contains("market health") ||
+      msg.contains("health") ||
+      msg.contains("salud del mercado") ||
+      msg.contains("markethealth") ||
+      msg.contains("estado de salud del mercado");
+
+    if (wantsMarketHealth) {
+    McpDtos.McpResponse r = baseMcp();
+
+    McpDtos.McpResponse.ToolCall tc = new McpDtos.McpResponse.ToolCall();
+    tc.id = "tc_market_health_1";
+    tc.tool = "cryptolink.market-health.get";
+    tc.input = Map.of(
+        "symbols", marketHealthSymbols,
+        "fiat", "MXN"
+    );
+    r.toolCalls = List.of(tc);
+
+    long t0 = System.currentTimeMillis();
+    Map<String, Object> resp = cryptoLink.getMarketHealth(marketHealthSymbols, "MXN");
+    long ms = System.currentTimeMillis() - t0;
+
+    if (resp == null || !Boolean.TRUE.equals(resp.get("ok"))) {
+      McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
+      tr.toolCallId = "tc_market_health_1";
+      tr.ok = false;
+      tr.latencyMs = ms;
+      tr.error = "market_health_not_available: " + String.valueOf(resp);
+      r.toolResults = List.of(tr);
+
+      r.answer.summary = "No pude obtener market health";
+      r.answer.sections = List.of(
+          notice("sec_notice_market_health_fail", "warning", "Market health no disponible por ahora.", String.valueOf(resp))
+      );
+      return r;
+    }
+
+    String mhFiat = String.valueOf(resp.get("fiat"));
+    String mhSource = String.valueOf(resp.get("source"));
+    String mhAsOf = String.valueOf(resp.get("ts"));
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> marketHealth = (Map<String, Object>) resp.get("marketHealth");
+
+    String state = String.valueOf(marketHealth.get("state"));
+    Object score = marketHealth.get("score");
+    String summary = String.valueOf(marketHealth.get("summary"));
+
+    McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
+    tr.toolCallId = "tc_market_health_1";
+    tr.ok = true;
+    tr.latencyMs = ms;
+    tr.source = mhSource;
+    tr.asOf = mhAsOf;
+    r.toolResults = List.of(tr);
+
+    McpDtos.McpResponse.Section kpis = new McpDtos.McpResponse.Section();
+    kpis.id = "sec_kpis_market_health";
+    kpis.type = "kpi_grid";
+    kpis.title = "Market Health";
+    kpis.items = List.of(
+        Map.<String, Object>of(
+            "label", "Estado",
+            "value", esMarketHealthState(state),
+            "unit", "",
+            "tone", marketHealthTone(state)
+        ),
+        Map.<String, Object>of(
+            "label", "Score",
+            "value", String.valueOf(score),
+            "unit", "/100",
+            "tone", marketHealthTone(state)
+        )
+    );
+
+    McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
+    sec.id = "sec_text_market_health";
+    sec.type = "text";
+    sec.title = "Lectura de salud del mercado";
+    sec.text =
+        "La salud del mercado se evalúa como **" + esMarketHealthState(state) +
+        "** con score de **" + score + "/100**.\n\n" +
+        summary;
+
+    r.answer.summary = "Salud del mercado";
+    r.answer.sections = List.of(
+        notice(
+            "sec_notice_market_health",
+            "info",
+            "Market health obtenido desde CryptoLink.",
+            "asOf=" + shortIso(mhAsOf) + " · source=" + mhSource + " · fiat=" + mhFiat
+        ),
+        kpis,
+        sec
+    );
+
+    return r;
+  }  
+
+  // =========================
+  // 10) SNAPSHOT TOOL
   // =========================
   boolean wantsSnapshot =
       msg.contains("snapshot") ||
@@ -1274,7 +1383,7 @@ CHAT RECIENTE:
   }
 
   // =========================
-  // 10) FALLBACK LLM
+  // 11) FALLBACK LLM
   // =========================
   var conv = memory.getOrCreateConversation(req.sessionId(), product);
   var conversationId = conv.getId();
@@ -1425,6 +1534,26 @@ CHAT RECIENTE:
       case "momentum_spike" -> "pico de momentum";
       case "outlier_symbol" -> "símbolo fuera de patrón";
       default -> "movimiento inusual";
+    };
+  }
+
+  private String esMarketHealthState(String state) {
+    if (state == null) return "estable";
+    return switch (state.toLowerCase()) {
+      case "healthy" -> "saludable";
+      case "fragile" -> "frágil";
+      case "under_pressure" -> "bajo presión";
+      default -> "estable";
+  };
+}
+
+  private String marketHealthTone(String state) {
+    if (state == null) return "neutral";
+    return switch (state.toLowerCase()) {
+      case "healthy" -> "up";
+      case "under_pressure" -> "down";
+      case "fragile" -> "warning";
+      default -> "neutral";
     };
   }
 }
