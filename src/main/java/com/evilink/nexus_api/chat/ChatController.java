@@ -350,7 +350,7 @@ CHAT RECIENTE:
         notice(
             "sec_notice_prices",
             "info",
-            "Precios obtenidos desde CryptoLink.",
+            "Prices retrieved from CryptoLink.",
             "asOf=" + shortIso(priceAsOf) + " · source=" + priceSource
         ),
         kpis,
@@ -506,7 +506,7 @@ CHAT RECIENTE:
         notice(
             "sec_notice_movers",
             "info",
-            "Movers obtenidos desde CryptoLink.",
+            "Movers retrieved from CryptoLink.",
             "asOf=" + shortIso(moverAsOf) + " · source=" + moverSource
         ),
         kpis,
@@ -654,7 +654,7 @@ CHAT RECIENTE:
         notice(
             "sec_notice_momentum",
             "info",
-            "Momentum obtenido desde CryptoLink.",
+            "Momentum retrieved from CryptoLink.",
             "asOf=" + shortIso(momentumAsOf) + " · source=" + momentumSource
         ),
         kpis,
@@ -762,7 +762,7 @@ CHAT RECIENTE:
     McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
     sec.id = "sec_text_regime";
     sec.type = "text";
-    sec.title = "Lectura del mercado";
+    sec.title = "Market read";
     sec.text =
         "El mercado muestra un régimen **" + esRegimeState(state) + "** con confianza de **" +
         fmtConfidence(confidence) + "** y score agregado de **" + score + "**.\n\n" +
@@ -773,7 +773,7 @@ CHAT RECIENTE:
         notice(
             "sec_notice_regime",
             "info",
-            "Régimen obtenido desde CryptoLink.",
+            "Market regime retrieved from CryptoLink.",
             "asOf=" + shortIso(regimeAsOf) + " · source=" + regimeSource + " · fiat=" + regimeFiat
         ),
         kpis,
@@ -884,7 +884,7 @@ CHAT RECIENTE:
         notice(
             "sec_notice_trends",
             "info",
-            "Tendencias obtenidas desde CryptoLink.",
+            "Trends retrieved from CryptoLink.",
             "asOf=" + shortIso(trendAsOf) + " · source=" + trendSource
         ),
         kpis,
@@ -1007,7 +1007,7 @@ CHAT RECIENTE:
     McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
     sec.id = "sec_text_risk";
     sec.type = "text";
-    sec.title = "Lectura de riesgo";
+    sec.title = "Risk read";
 
     if (flags == null || flags.isEmpty()) {
       sec.text = riskSummary;
@@ -1030,7 +1030,7 @@ CHAT RECIENTE:
         notice(
             "sec_notice_risk",
             "info",
-            "Risk flags obtenidos desde CryptoLink.",
+            "Risk flags retrieved from CryptoLink.",
             "asOf=" + shortIso(riskAsOf) + " · source=" + riskSource + " · fiat=" + riskFiat
         ),
         kpis,
@@ -1140,7 +1140,7 @@ CHAT RECIENTE:
     McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
     sec.id = "sec_text_anomalies";
     sec.type = "text";
-    sec.title = "Lectura de anomalías";
+    sec.title = "Anomalies read";
 
     if (anomalies == null || anomalies.isEmpty()) {
       sec.text = anomalySummary;
@@ -1165,7 +1165,7 @@ CHAT RECIENTE:
         notice(
             "sec_notice_anomalies",
             "info",
-            "Anomalías obtenidas desde CryptoLink.",
+            "Anomalies retrieved from CryptoLink.",
             "asOf=" + shortIso(anomalyAsOf) + " · source=" + anomalySource + " · fiat=" + anomalyFiat
         ),
         kpis,
@@ -1263,7 +1263,7 @@ CHAT RECIENTE:
     McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
     sec.id = "sec_text_market_health";
     sec.type = "text";
-    sec.title = "Lectura de salud del mercado";
+    sec.title = "Market Health read";
     sec.text =
         "La salud del mercado se evalúa como **" + esMarketHealthState(state) +
         "** con score de **" + score + "/100**.\n\n" +
@@ -1274,7 +1274,7 @@ CHAT RECIENTE:
         notice(
             "sec_notice_market_health",
             "info",
-            "Market health obtenido desde CryptoLink.",
+            "Market health retrieved from CryptoLink.",
             "asOf=" + shortIso(mhAsOf) + " · source=" + mhSource + " · fiat=" + mhFiat
         ),
         kpis,
@@ -1372,7 +1372,7 @@ CHAT RECIENTE:
         notice(
             "sec_notice_snapshot",
             "info",
-            "Snapshot obtenido desde CryptoLink.",
+            "Snapshot retrieved from CryptoLink.",
             "asOf=" + shortIso(asOf) + " · source=" + source + " · provider=" + provider
         ),
         kpis,
