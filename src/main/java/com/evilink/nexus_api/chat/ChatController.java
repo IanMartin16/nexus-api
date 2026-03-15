@@ -1284,9 +1284,140 @@ CHAT RECIENTE:
     return r;
   }  
 
+  List<String> socialPulseSymbols = extractSymbols(req.message());
+  if (socialPulseSymbols.isEmpty()) {
+    socialPulseSymbols = List.of("BTC", "ETH", "SOL"); 
+  }
+
   // =========================
-  // 10) SNAPSHOT TOOL
+  // 10) SOCIAL PULSE
   // =========================
+
+  boolean wantsSocialPulse =
+      msg.contains("social pulse") ||
+      msg.contains("market narrative") ||
+      msg.contains("narrative") ||
+      msg.contains("social sentiment") ||
+      msg.contains("what's the social pulse") ||
+      msg.contains("what is the social pulse");
+
+    if (wantsSocialPulse) {
+    McpDtos.McpResponse r = baseMcp();
+
+    McpDtos.McpResponse.ToolCall tc = new McpDtos.McpResponse.ToolCall();
+    tc.id = "tc_social_pulse_1";
+    tc.tool = "cryptolink.social-pulse.get";
+    tc.input = Map.of(
+        "symbols", socialPulseSymbols,
+        "fiat", "MXN"
+    );
+    r.toolCalls = List.of(tc);
+
+    long t0 = System.currentTimeMillis();
+    Map<String, Object> resp = cryptoLink.getSocialPulse(socialPulseSymbols, "MXN");
+    long ms = System.currentTimeMillis() - t0;
+
+    if (resp == null || !Boolean.TRUE.equals(resp.get("ok"))) {
+      McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
+      tr.toolCallId = "tc_social_pulse_1";
+      tr.ok = false;
+      tr.latencyMs = ms;
+      tr.error = "social_pulse_not_available: " + String.valueOf(resp);
+      r.toolResults = List.of(tr);
+
+      r.answer.summary = "I couldn't retrieve Social Pulse";
+      r.answer.sections = List.of(
+          notice("sec_notice_social_pulse_fail", "warning", "Social Pulse is not available right now.", String.valueOf(resp))
+      );
+      return r;
+    }
+
+    String spFiat = String.valueOf(resp.get("fiat"));
+    String spSource = String.valueOf(resp.get("source"));
+    String spAsOf = String.valueOf(resp.get("ts"));
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> socialPulse = (Map<String, Object>) resp.get("socialPulse");
+
+    String state = String.valueOf(socialPulse.get("state"));
+    Object score = socialPulse.get("score");
+    String summary = String.valueOf(socialPulse.get("summary"));
+
+    @SuppressWarnings("unchecked")
+    List<String> topAssets = (List<String>) socialPulse.get("topAssets");
+
+    @SuppressWarnings("unchecked")
+    List<String> tags = (List<String>) socialPulse.get("tags");
+
+    McpDtos.McpResponse.ToolResult tr = new McpDtos.McpResponse.ToolResult();
+    tr.toolCallId = "tc_social_pulse_1";
+    tr.ok = true;
+    tr.latencyMs = ms;
+    tr.source = spSource;
+    tr.asOf = spAsOf;
+    r.toolResults = List.of(tr);
+
+    McpDtos.McpResponse.Section kpis = new McpDtos.McpResponse.Section();
+    kpis.id = "sec_kpis_social_pulse";
+    kpis.type = "kpi_grid";
+    kpis.title = "Social Pulse";
+    kpis.items = List.of(
+        Map.<String, Object>of(
+            "label", "State",
+            "value", socialPulseLabel(state),
+            "unit", "",
+            "tone", socialPulseTone(state)
+        ),
+        Map.<String, Object>of(
+            "label", "Score",
+            "value", String.valueOf(score),
+            "unit", "/100",
+            "tone", socialPulseTone(state)
+        ),
+        Map.<String, Object>of(
+            "label", "Assets",
+            "value", topAssets == null ? "0" : String.valueOf(topAssets.size()),
+            "unit", "",
+            "tone", socialPulseTone(state)
+        )
+    );
+
+    McpDtos.McpResponse.Section sec = new McpDtos.McpResponse.Section();
+    sec.id = "sec_text_social_pulse";
+    sec.type = "text";
+    sec.title = "Narrative Read";
+
+    String assetsText =
+        (topAssets == null || topAssets.isEmpty())
+            ? "No dominant assets detected."
+            : "Top assets: **" + String.join(", ", topAssets) + "**.";
+
+    String tagsText =
+        (tags == null || tags.isEmpty())
+            ? "No narrative tags available."
+            : "Tags: " + tags.stream().map(t -> "`" + t + "`").reduce((a, b) -> a + " · " + b).orElse("");
+
+    sec.text = summary + "\n\n" + assetsText + "\n" + tagsText;
+
+    r.answer.summary = "Social Pulse";
+    r.answer.sections = List.of(
+        notice(
+           "sec_notice_social_pulse",
+         "info",
+      "Social Pulse retrieved from CryptoLink.",
+              "asOf=" + shortIso(spAsOf) + " · source=" + spSource + " · fiat=" + spFiat
+        ),
+        kpis,
+        sec
+    );
+
+    return r;
+  }    
+
+  // =========================
+  // 11) SNAPSHOT TOOL
+  // =========================
+
   boolean wantsSnapshot =
       msg.contains("snapshot") ||
       msg.contains("mood") ||
@@ -1412,7 +1543,7 @@ CHAT RECIENTE:
   s.text = answer;
 
   r.answer.sections = List.of(
-      notice("sec_notice_1", "info", "MCP v0.1 activo.", "conversationId=" + conversationId),
+      notice("sec_notice_1", "info", "MCP v0.8 activo.", "conversationId=" + conversationId),
       s
   );
 
@@ -1553,6 +1684,26 @@ CHAT RECIENTE:
       case "healthy" -> "up";
       case "under_pressure" -> "down";
       case "fragile" -> "warning";
+      default -> "neutral";
+    };
+  }
+
+  private String socialPulseLabel(String state) {
+    if (state == null) return "Neutral";
+    return switch (state.toLowerCase()) {
+      case "bullish" -> "Bullish";
+      case "bearish" -> "Bearish";
+      case "mixed" -> "Mixed";
+      default -> "Neutral";
+    };
+  }
+
+  private String socialPulseTone(String state) {
+    if (state == null) return "neutral";
+    return switch (state.toLowerCase()) {
+      case "bullish" -> "up";
+      case "bearish" -> "down";
+      case "mixed" -> "warning";
       default -> "neutral";
     };
   }
