@@ -1342,6 +1342,9 @@ CHAT RECIENTE:
     String state = String.valueOf(socialPulse.get("state"));
     Object score = socialPulse.get("score");
     String summary = String.valueOf(socialPulse.get("summary"));
+    String breadth = String.valueOf(socialPulse.get("breadth"));
+    String conviction = String.valueOf(socialPulse.get("conviction"));
+    String leadership = String.valueOf(socialPulse.get("leadership"));
 
     @SuppressWarnings("unchecked")
     List<String> topAssets = (List<String>) socialPulse.get("topAssets");
@@ -1379,6 +1382,24 @@ CHAT RECIENTE:
             "value", topAssets == null ? "0" : String.valueOf(topAssets.size()),
             "unit", "",
             "tone", socialPulseTone(state)
+        ),
+        Map.<String, Object>of(
+          "label", "Breadth",
+          "value", capitalizeWord(breadth),
+          "unit", "",
+          "tone", socialPulseTone(state)
+        ),
+        Map.<String, Object>of(
+          "label", "Conviction",
+          "value", capitalizeWord(conviction),
+          "unit", "",
+          "tone", socialPulseTone(state)
+        ),
+        Map.<String, Object>of(
+          "label", "Leadership",
+          "value", capitalizeWord(leadership),
+          "unit", "",
+          "tone", socialPulseTone(state)
         )
     );
 
@@ -1397,7 +1418,12 @@ CHAT RECIENTE:
             ? "No narrative tags available."
             : "Tags: " + tags.stream().map(t -> "`" + t + "`").reduce((a, b) -> a + " · " + b).orElse("");
 
-    sec.text = summary + "\n\n" + assetsText + "\n" + tagsText;
+      String structureText = 
+        "Breadth: **" + capitalizeWord(breadth) + "** . " +
+        "Conviction: **" + capitalizeWord(conviction) + "** . " +
+        "Leadership: **" + capitalizeWord(leadership) + "**.";     
+
+    sec.text = summary + structureText + "\n\n" + "\n\n" + assetsText + "\n" + tagsText;
 
     r.answer.summary = "Social Pulse";
     r.answer.sections = List.of(
@@ -1706,5 +1732,9 @@ CHAT RECIENTE:
       case "mixed" -> "warning";
       default -> "neutral";
     };
+  }
+  private String capitalizeWord(String value) {
+    if (value == null || value.isBlank()) return "-";
+    return value.substring(0,1).toUpperCase() + value.substring(1).toLowerCase();
   }
 }
