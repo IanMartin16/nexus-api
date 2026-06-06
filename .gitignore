@@ -38,3 +38,6 @@ build/
 *.local
 application-local.yml
 application-local.properties
+
+### docs ###
+mcp-one-candidate-b-capability-discovery-v0.1.md

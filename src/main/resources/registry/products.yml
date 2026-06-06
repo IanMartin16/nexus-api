@@ -1,0 +1,223 @@
+products:
+  - id: curpify
+    name: Curpify
+    status: active
+    exposure: public
+    public_surface: docs_and_api
+    frontend_status: optional
+    positioning: api_first
+    summary: API para validación de CURP y RFC con dígito verificador, orientada a identidad y validación fiscal estructurada en México.
+    domains:
+      - identity_validation
+      - curp_validation
+      - tax_validation
+      - rfc_validation
+    capabilities:
+      - id: curp_validation
+        name: CURP Validation
+        status: active
+        exposure: public
+        kind: direct
+        description: Valida CURP y devuelve datos estructurados relacionados.
+      - id: rfc_validation
+        name: RFC Validation
+        status: active
+        exposure: public
+        kind: direct
+        description: Valida RFC con dígito verificador y apoya flujos de validación fiscal y de identidad estructurada.
+
+  - id: cryptolink
+    name: CryptoLink
+    status: active
+    exposure: public
+    public_surface: docs_and_api
+    frontend_status: active
+    positioning: api_and_widget
+    summary: API de datos financieros y cripto con señales, snapshots y herramientas de mercado.
+    domains:
+      - crypto_data
+      - market_intelligence
+      - risk_signals
+    capabilities:
+      - id: prices
+        name: Price Lookup
+        status: active
+        exposure: public
+        kind: direct
+        description: Consulta precios de activos soportados.
+      - id: snapshot
+        name: Market Snapshot
+        status: active
+        exposure: public
+        kind: direct
+        description: Entrega snapshot de mercado con KPIs resumidos.
+      - id: trends
+        name: Trends
+        status: active
+        exposure: public
+        kind: direct
+        description: Resume dirección de mercado y movimiento reciente.
+      - id: momentum
+        name: Momentum
+        status: active
+        exposure: public
+        kind: direct
+        description: Evalúa fuerza y consistencia del movimiento reciente.
+      - id: risk_flags
+        name: Risk Flags
+        status: active
+        exposure: public
+        kind: direct
+        description: Señala alertas relevantes de riesgo en activos soportados.
+      - id: anomalies
+        name: Anomalies
+        status: active
+        exposure: public
+        kind: direct
+        description: Detecta movimientos o comportamientos atípicos.
+      - id: market_health
+        name: Market Health
+        status: active
+        exposure: public
+        kind: direct
+        description: Resume el estado general del mercado.
+      - id: social_pulse
+        name: Social Pulse
+        status: active
+        exposure: public
+        kind: direct
+        description: Resume narrativa y pulso social del mercado.
+
+  - id: secure_link
+    name: Secure Link
+    status: limited
+    exposure: limited
+    public_surface: guided_discovery
+    frontend_status: none
+    positioning: specialized_route
+    summary: Dirección especializada para capacidades de seguridad y evaluación de riesgo.
+    domains:
+      - security
+      - risk_evaluation
+    capabilities:
+      - id: risk_evaluation_preview
+        name: Risk Evaluation Preview
+        status: limited
+        exposure: limited
+        kind: specialized_route
+        description: Ruta especializada para evaluación de riesgo y seguridad; no disponible como función general del widget.
+
+  - id: data_link
+    name: Data_Link
+    status: active
+    exposure: public
+    public_surface: docs_and_api
+    frontend_status: planned
+    positioning: api_first
+    summary: API para procesamiento estructurado de archivos, limpieza, transformación y reducción de datos a gran volumen.
+    domains:
+      - data_processing
+      - file_transformation
+      - deduplication
+      - record_filtering
+    capabilities:
+      - id: remove_duplicates_by_email
+        name: Remove Duplicates by Email
+        status: active
+        exposure: public
+        kind: direct
+        description: Elimina registros duplicados usando email como llave de comparación.
+      - id: remove_duplicates_by_id
+        name: Remove Duplicates by ID
+        status: active
+        exposure: public
+        kind: direct
+        description: Elimina registros duplicados usando un identificador como llave.
+      - id: remove_duplicates_by_email_and_phone
+        name: Remove Duplicates by Email and Phone
+        status: active
+        exposure: public
+        kind: direct
+        description: Elimina duplicados usando email y teléfono como llave combinada.
+      - id: filter_active_only
+        name: Filter Active Only
+        status: active
+        exposure: public
+        kind: direct
+        description: Conserva únicamente registros activos.
+      - id: remove_empty_records
+        name: Remove Empty Records
+        status: active
+        exposure: public
+        kind: direct
+        description: Elimina registros vacíos o no útiles.
+    operational_notes:
+      input_formats:
+        - csv
+        - json
+      processing_model: multiprocessing_with_chunking
+      output_delivery: job_result_with_download_url
+      commercial_posture: docs_first
+    next_capabilities_observed:
+      - parquet_conversion
+      - sensitive_data_masking
+      - basic_etl
+
+  - id: v_secrets
+    name: V-Secrets
+    status: active
+    exposure: public
+    public_surface: docs_and_api
+    frontend_status: planned
+    positioning: api_first
+    summary: API para gestión segura de secretos, keys y cifrado orientado a servicios y entornos productivos.
+    domains:
+      - secrets_management
+      - key_management
+      - cryptography
+      - secure_configuration
+    capabilities:
+      - id: secret_storage
+        name: Secret Storage
+        status: active
+        exposure: public
+        kind: direct
+        description: Almacena y gestiona secretos de forma segura.
+      - id: key_management
+        name: Key Management
+        status: active
+        exposure: public
+        kind: direct
+        description: Gestiona keys y material sensible para integraciones y servicios.
+      - id: cryptographic_protection
+        name: Cryptographic Protection
+        status: active
+        exposure: public
+        kind: direct
+        description: Proporciona capacidades de protección criptográfica para secretos y configuraciones sensibles.
+
+  - id: status_hub
+    name: Status-Hub
+    status: active
+    exposure: public
+    public_surface: guided_discovery
+    frontend_status: active
+    positioning: observability_surface
+    summary: Superficie de observabilidad del ecosistema para estado de servicios, salud operativa y monitoreo básico.
+    domains:
+      - observability
+      - service_status
+      - health_monitoring
+    capabilities:
+      - id: service_status_monitoring
+        name: Service Status Monitoring
+        status: active
+        exposure: public
+        kind: direct
+        description: Muestra el estado operativo y la salud básica de servicios del ecosistema.
+      - id: ecosystem_health_visibility
+        name: Ecosystem Health Visibility
+        status: active
+        exposure: public
+        kind: discovery_only
+        description: Da visibilidad al estado general del ecosistema y sus servicios principales.

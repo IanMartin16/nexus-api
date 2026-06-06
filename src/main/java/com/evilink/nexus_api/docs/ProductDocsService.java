@@ -12,14 +12,24 @@ public class ProductDocsService {
 
   private final Map<String, String> cache = new ConcurrentHashMap<>();
 
+  private String normalizeProductKey(String product) {
+    if (product == null) return "";
+    String p = product.trim().toLowerCase();
+
+    return switch (p) {
+      case "evi_link" -> "evilink";
+      default -> p;
+    };
+  }
+
   public String getDocs(String product) {
-    String p = (product == null) ? "" : product.trim().toLowerCase();
+    String p = normalizeProductKey(product);
 
     return cache.computeIfAbsent(p, key -> {
       String path = switch (key) {
         case "curpify" -> "knowledge/curpify.md";
         case "cryptolink" -> "knowledge/cryptolink.md";
-        case "evi_link" -> "knowledge/evilink.md";
+        case "evilink" -> "knowledge/evilink.md";
         default -> "";
       };
 
@@ -36,36 +46,33 @@ public class ProductDocsService {
     });
   }
 
-  /** evita meter docs gigantes al prompt */
   public String trim(String s, int maxChars) {
     if (s == null) return "";
     String t = s.trim();
     if (t.length() <= maxChars) return t;
     return t.substring(0, maxChars) + "\n\n[...doc recortado por tamaño...]";
   }
-  public String getDocsBundle(String product) {
-    String p = (product == null) ? "" : product.trim().toLowerCase();
 
-    // si el user selecciona evilink => meter todo
+  public String getDocsBundle(String product) {
+    String p = normalizeProductKey(product);
+
     if ("evilink".equals(p) || "general".equals(p)) {
       String curpify = getDocs("curpify");
       String cryptolink = getDocs("cryptolink");
       String evilink = getDocs("evilink");
 
       return """
-  # Curpify
-  %s
+# Curpify
+%s
 
-  # CryptoLink
-  %s
+# CryptoLink
+%s
 
-  # evi_link
-  %s
-  """.formatted(curpify, cryptolink, evilink).trim();
+# Evilink
+%s
+""".formatted(curpify, cryptolink, evilink).trim();
     }
 
-    // si no, normal (solo el producto seleccionado)
     return getDocs(p);
   }
-
 }

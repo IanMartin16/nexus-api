@@ -1,14 +1,24 @@
 package com.evilink.nexus_api.chat;
 
+import com.evilink.nexus_api.chat.service.McpOneChatResponseMapper;
+import com.evilink.nexus_api.chat.service.NexusMessageRoutingService;
+import com.evilink.nexus_api.chat.dto.NexusMessageRoutingResult;
 import com.evilink.nexus_api.docs.ProductDocsService;
 import com.evilink.nexus_api.openai.OpenAiResponsesClient;
 import com.evilink.nexus_api.persistence.MessageEntity;
 import com.evilink.nexus_api.tools.cryptolink.CryptoLinkClient;
+import com.evilink.nexus_api.mcpone.service.McpOneWidgetCopyService;
+import com.evilink.nexus_api.mcpone.dto.McpOneWidgetCopy;
+import com.evilink.nexus_api.mcpone.dto.McpOneDiscoveryMode;
+import com.evilink.nexus_api.mcpone.service.McpOneDiscoveryModeService;
+
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Set;
@@ -26,6 +36,11 @@ public class ChatController {
   private final ChatMemoryService memory;
   private final RateLimiterService rateLimiter;
   private final CryptoLinkClient cryptoLink;
+  private final NexusMessageRoutingService nexusMessageRoutingService;
+  private final McpOneChatResponseMapper mcpOneChatResponseMapper;
+  private final McpOneWidgetCopyService mcpOneWidgetCopyService;
+  private static final Logger log = LoggerFactory.getLogger(ChatController.class);
+  private final McpOneDiscoveryModeService mcpOneDiscoveryModeService;
 
 
   public ChatController(
@@ -34,7 +49,11 @@ public class ChatController {
       ProductDocsService docsService,
       ChatMemoryService memory,
       RateLimiterService rateLimiter,
-      CryptoLinkClient cryptoLink
+      CryptoLinkClient cryptoLink,
+      NexusMessageRoutingService nexusMessageRoutingService,
+      McpOneChatResponseMapper mcpOneChatResponseMapper,
+      McpOneWidgetCopyService mcpOneWidgetCopyService,
+      McpOneDiscoveryModeService mcpOneDiscoveryModeService
   ) {
     this.nexusWebSecret = webSecret;
     this.openAi = openAi;
@@ -42,6 +61,10 @@ public class ChatController {
     this.memory = memory;
     this.rateLimiter = rateLimiter;
     this.cryptoLink = cryptoLink;
+    this.nexusMessageRoutingService = nexusMessageRoutingService;
+    this.mcpOneChatResponseMapper = mcpOneChatResponseMapper;
+    this.mcpOneWidgetCopyService = mcpOneWidgetCopyService;
+    this.mcpOneDiscoveryModeService = mcpOneDiscoveryModeService;
   }
 
   @PostMapping("/chat")
@@ -49,52 +72,113 @@ public class ChatController {
       @RequestHeader(value = "x-web-secret", required = false) String webSecret,
       @Valid @RequestBody ChatRequest req
   ) {
-    // auth opcional por secret
-    if (nexusWebSecret != null && !nexusWebSecret.isBlank()) {
-      if (webSecret == null || !webSecret.equals(nexusWebSecret)) {
-        return Map.of("ok", false, "error", "Unauthorized");
+      // auth opcional por secret
+      if (nexusWebSecret != null && !nexusWebSecret.isBlank()) {
+          if (webSecret == null || !webSecret.equals(nexusWebSecret)) {
+              return Map.of("ok", false, "error", "Unauthorized");
+          }
       }
-    }
-    if (!rateLimiter.allow(req.sessionId(), req.product())) {
-      return Map.of("ok", false, "error", "Rate limit: intenta de nuevo en 1 minuto");
-    }
 
+      if (!rateLimiter.allow(req.sessionId(), req.product())) {
+          return Map.of("ok", false, "error", "Rate limit: intenta de nuevo en 1 minuto");
+      }
 
-    String product = req.product().trim().toLowerCase();
+      String product = req.product().trim().toLowerCase();
 
-    // 1) upsert conversación
-    var conv = memory.getOrCreateConversation(req.sessionId(), product);
-    UUID conversationId = conv.getId();
+      // 1) upsert conversación
+      var conv = memory.getOrCreateConversation(req.sessionId(), product);
+      UUID conversationId = conv.getId();
 
-    // 2) (opcional) resumen si ya creció (antes de generar respuesta)
-    conv = memory.maybeSummarize(conv, 40);
+      // 2) (opcional) resumen si ya creció
+      conv = memory.maybeSummarize(conv, 40);
 
-    // 3) docs del producto + recorte
-    String docs = docsService.trim(docsService.getDocs(product), 14000);
+      // 3) docs del producto + recorte
+      String docs = docsService.trim(docsService.getDocs(product), 14000);
 
-    // 4) instrucciones
-    String instructions = buildInstructions(product, docs);
+      // 4) instrucciones
+      String instructions = buildInstructions(product, docs);
 
-    // 5) contexto: últimos N mensajes (antes de guardar el mensaje actual)
-    //    así evitamos duplicar: el mensaje actual va como "input" aparte
-    List<MessageEntity> last = memory.getLastMessages(conversationId, 12);
-    String context = buildContextWithSummary(conv.getSummary(), last);
+      // 5) contexto: últimos N mensajes
+      List<MessageEntity> last = memory.getLastMessages(conversationId, 12);
+      String context = buildContextWithSummary(conv.getSummary(), last);
 
-    // 6) guarda mensaje user
-    memory.saveMessage(conv, "user", req.message());
+      // 6) guarda mensaje user
+      memory.saveMessage(conv, "user", req.message());
 
-    // 7) llamar OpenAI (input = mensaje actual)
-    String answer = openAi.generateAnswerWithContext(instructions, context, req.message());
+      NexusMessageRoutingResult routed = null;
+      String requestId = "nexus-" + System.currentTimeMillis();
 
-    // 8) guarda respuesta assistant
-    memory.saveMessage(conv, "assistant", answer);
+      // 6.1) route MCP-One solo para product = evilink
+      if ("evilink".equals(product)) {
 
-    return Map.of(
-        "ok", true,
-        "product", product,
-        "answer", answer,
-        "conversationId", conversationId.toString()
-    );
+          routed = nexusMessageRoutingService.routeMessage(
+              product,
+              req.message(),
+              requestId,
+              "widget",
+              "evilink-dev",
+              req.sessionId()
+          );
+          
+          if ("mcp-one".equals(routed.getPath())) {
+              Map<String, Object> mapped = mcpOneChatResponseMapper.map(
+                  routed,
+                  conversationId.toString()
+              );
+
+              String answer = (String) mapped.getOrDefault("message", "");
+              if (!answer.isBlank()) {
+                  memory.saveMessage(conv, "assistant", answer);
+              }
+
+              log.info(
+                "nexus_routing requestId={} product={} triggered={} path={} domainHint={} displayState={}",
+                  requestId,
+                  product,
+                  routed.isTriggered(),
+                  routed.getPath(),
+                  routed.getDomainHint(),
+                  routed.getDisplayState()
+              );
+
+              return Map.of(
+                  "ok", true,
+                  "product", product,
+                  "answer", mapped.get("message"),
+                  "conversationId", conversationId.toString(),
+                  "meta", mapped
+              );
+          }
+      }
+
+      // 7) flujo nativo actual
+      String answer = openAi.generateAnswerWithContext(instructions, context, req.message());
+
+      // 8) guarda respuesta assistant
+      memory.saveMessage(conv, "assistant", answer);
+
+      log.info(
+  "nexus_routing requestId={} product={} triggered={} path={} domainHint={} displayState={}",
+          requestId,
+          product,
+          routed != null && routed.isTriggered(),
+          routed != null ? routed.getPath() : "nexus-native",
+          routed != null ? routed.getDomainHint() : "unknown",
+          routed != null ? routed.getDisplayState() : null
+      );
+
+      return Map.of(
+          "ok", true,
+          "product", product,
+          "answer", answer,
+          "conversationId", conversationId.toString(),
+          "meta", Map.of(
+            "source", "nexus-native",
+            "path", "nexus-native",
+            "triggered", routed != null && routed.isTriggered(),
+            "domainHint", routed != null ? routed.getDomainHint() : "unknown"
+          )
+      );
   }
 
   @GetMapping("/history")
@@ -149,6 +233,7 @@ DOCUMENTACIÓN DEL PRODUCTO (fuente principal):
 """.formatted(focusRule, (docs == null ? "" : docs));
   }
 
+
   private String buildContextWithSummary(String summary, List<MessageEntity> msgsAsc) {
     String recent = buildContext(msgsAsc);
     if (summary == null || summary.isBlank()) return recent;
@@ -201,12 +286,62 @@ CHAT RECIENTE:
     }
     return found;
   }
+
+  private boolean shouldPrioritizeMcpOneBeforeTools(String product, String rawMessage) {
+  if (product == null || rawMessage == null) return false;
+  String normalizedProduct = product.trim().toLowerCase();
+    boolean ecosystemProduct =
+      "evilink".equals(normalizedProduct) ||
+      "evi_link".equals(normalizedProduct);
+
+  if (!ecosystemProduct) {
+    return false;
+  }
+
+  String msg = rawMessage.toLowerCase();
+
+  boolean explicitToolIntent =
+      msg.contains("risk flags") ||
+      msg.contains("show risk flags") ||
+      msg.contains("market trends") ||
+      msg.contains("snapshot") ||
+      msg.contains("precio") ||
+      msg.contains("price");
+
+  if (explicitToolIntent) {
+    return false;
+  }
+
+  boolean capabilityLanguage =
+      msg.contains("capability") ||
+      msg.contains("module") ||
+      msg.contains("which capability") ||
+      msg.contains("what capability") ||
+      msg.contains("which module") ||
+      msg.contains("what module") ||
+      msg.contains("best fits") ||
+      msg.contains("best fit") ||
+      msg.contains("fits this");
+
+  boolean orchestrationSecurityLanguage =
+      msg.contains("fraud risk scoring") ||
+      msg.contains("security-related capability") ||
+      msg.contains("security risk evaluation") ||
+      msg.contains("transaction risk") ||
+      msg.contains("risk evaluation") ||
+      msg.contains("security capability") ||
+      msg.contains("fraud risk");
+
+  return capabilityLanguage || orchestrationSecurityLanguage;
+}
+
   
   @PostMapping("/mcp/chat")
   public McpDtos.McpResponse chatMcp(
     @RequestHeader(value = "x-web-secret", required = false) String webSecret,
     @Valid @RequestBody ChatRequest req
   ) {
+
   // =========================
   // 0) AUTH
   // =========================
@@ -239,6 +374,31 @@ CHAT RECIENTE:
 
   String msg = (req.message() == null) ? "" : req.message().toLowerCase();
   String product = req.product().trim().toLowerCase();
+  
+  boolean ecosystemProduct = "evilink".equals(product) || "evi_link".equals(product);
+  boolean cryptoToolLike = isExplicitCryptoToolFlow(req.message());
+
+  if (ecosystemProduct && !cryptoToolLike) {
+    McpDtos.McpResponse routed = tryMcpOneRoute(req, product);
+    if (routed != null) {
+      return routed;
+    }
+  }
+
+  // compat temporal:
+  // para otros productos o para flujos tool-like, conserva la ruta previa
+  if (!ecosystemProduct && shouldPrioritizeMcpOneBeforeTools(product, req.message())) {
+    McpDtos.McpResponse routed = tryMcpOneRoute(req, product);
+    if (routed != null) {
+      return routed;
+    }
+  }
+  log.info(
+    "chat_mcp_gate product={} cryptoToolLike={} message={}",
+    product,
+    cryptoToolLike,
+    req.message()
+);
 
   // =========================
   // 2) PRICES TOOL
@@ -641,16 +801,16 @@ CHAT RECIENTE:
           .count();
 
       if (insufficientCount > 0) {
-        useful += "\n\nAlgunos activos aún no tienen suficiente histórico para evaluar momentum con confianza.";
-      }
+          useful += "\n\nAlgunos activos aún no tienen suficiente histórico para evaluar momentum con confianza.";
+        }
 
       sec.text = useful;
-    } else {
-      sec.text = "Momentum aún en formación. Se necesita más histórico para evaluar fuerza y consistencia del movimiento.";
-    }
+      } else {
+        sec.text = "Momentum aún en formación. Se necesita más histórico para evaluar fuerza y consistencia del movimiento.";
+      }
 
-    r.answer.summary = "Momentum del mercado";
-    r.answer.sections = List.of(
+      r.answer.summary = "Momentum del mercado";
+      r.answer.sections = List.of(
         notice(
             "sec_notice_momentum",
             "info",
@@ -659,10 +819,10 @@ CHAT RECIENTE:
         ),
         kpis,
         sec
-    );
+      );
 
-    return r;
-  }    
+      return r;
+    }    
 
   // =========================
   // 5) REGIME
@@ -687,9 +847,9 @@ CHAT RECIENTE:
     McpDtos.McpResponse r = baseMcp();
 
     McpDtos.McpResponse.ToolCall tc = new McpDtos.McpResponse.ToolCall();
-    tc.id = "tc_regime_1";
-    tc.tool = "cryptolink.regime.get";
-    tc.input = Map.of(
+      tc.id = "tc_regime_1";
+      tc.tool = "cryptolink.regime.get";
+      tc.input = Map.of(
         "symbols", regimeSymbols,
         "fiat", "MXN"
     );
@@ -1539,13 +1699,14 @@ CHAT RECIENTE:
     return r;
   }
 
+
   // =========================
-  // 11) FALLBACK LLM
+  // 12) FALLBACK LLM
   // =========================
   var conv = memory.getOrCreateConversation(req.sessionId(), product);
   var conversationId = conv.getId();
 
-  conv = memory.maybeSummarize(conv, 40);
+    conv = memory.maybeSummarize(conv, 40);
 
   String docs = docsService.trim(docsService.getDocs(product), 14000);
   String instructions = buildInstructions(product, docs);
@@ -1553,27 +1714,241 @@ CHAT RECIENTE:
   var last = memory.getLastMessages(conversationId, 12);
   String context = buildContextWithSummary(conv.getSummary(), last);
 
-  memory.saveMessage(conv, "user", req.message());
+    memory.saveMessage(conv, "user", req.message());
 
   String answer = openAi.generateAnswerWithContext(instructions, context, req.message());
 
-  memory.saveMessage(conv, "assistant", answer);
+    memory.saveMessage(conv, "assistant", answer);
 
   McpDtos.McpResponse r = baseMcp();
-  r.answer.summary = answer.length() > 140 ? answer.substring(0, 140) + "…" : answer;
+    r.answer.summary = answer.length() > 140 ? answer.substring(0, 140) + "…" : answer;
 
   McpDtos.McpResponse.Section s = new McpDtos.McpResponse.Section();
-  s.id = "sec_text_1";
-  s.type = "text";
-  s.title = "Respuesta";
-  s.text = answer;
+    s.id = "sec_text_1";
+    s.type = "text";
+    s.title = "Respuesta";
+    s.text = answer;
 
   r.answer.sections = List.of(
-      notice("sec_notice_1", "info", "MCP v0.8 activo.", "conversationId=" + conversationId),
-      s
+    notice("sec_notice_1", "info", "MCP-One activo.", "conversationId=" + conversationId),
+    s
   );
 
-  return r;
+    return r;
+  }
+
+  private McpDtos.McpResponse tryMcpOneRoute(
+    ChatRequest req,
+    String product
+) {
+    String requestId = "nexus-" + System.currentTimeMillis();
+
+    NexusMessageRoutingResult routed = nexusMessageRoutingService.routeMessage(
+        product,
+        req.message(),
+        requestId,
+        "widget",
+        "evilink-dev",
+        req.sessionId()
+    );
+
+    log.info(
+        "nexus_routing requestId={} product={} triggered={} path={} domainHint={} displayState={}",
+        requestId,
+        product,
+        routed.isTriggered(),
+        routed.getPath(),
+        routed.getDomainHint(),
+        routed.getDisplayState()
+    );
+
+    if (!"mcp-one".equals(routed.getPath())) {
+        return null;
+    }
+
+    var conv = memory.getOrCreateConversation(req.sessionId(), product);
+    var conversationId = conv.getId();
+    memory.saveMessage(conv, "user", req.message());
+
+    var mcp = routed.getMcpOne();
+    if (mcp == null) {
+        return null;
+    }
+
+    boolean hasUserFacing =
+        (mcp.getUser_facing_title() != null && !mcp.getUser_facing_title().isBlank()) ||
+        (mcp.getUser_facing_summary() != null && !mcp.getUser_facing_summary().isBlank()) ||
+        (mcp.getUser_facing_context() != null && !mcp.getUser_facing_context().isBlank());
+
+    log.info(
+        "mcp_one_widget_payload requestId={} status={} mode={} recommendedModule={} discoveryMode={} hasUserFacing={}",
+        requestId,
+        mcp.getStatus(),
+        mcp.getMode(),
+        mcp.getRecommended_module(),
+        mcp.getDiscovery_mode(),
+        hasUserFacing
+    );
+
+    // ============================================================
+    // 1) Flujo principal: render directo del payload user-facing
+    // ============================================================
+    if (hasUserFacing) {
+        String discoveryMode = mcp.getDiscovery_mode() != null
+            ? mcp.getDiscovery_mode().trim()
+            : "generic";
+
+        String badge;
+        String title;
+
+        switch (discoveryMode) {
+            case "exact_fit" -> {
+                badge = "Producto recomendado";
+                title = "Mejor coincidencia";
+            }
+            case "near_fit" -> {
+                badge = "Coincidencia cercana";
+                title = "Orientación útil";
+            }
+            case "specialized_route" -> {
+                badge = "Ruta especializada";
+                title = "Siguiente paso";
+            }
+            default -> {
+                badge = "Alcance actual";
+                title = "Respuesta";
+            }
+        }
+
+        String answerText = sanitizeWidgetText(
+            mcp.getUser_facing_title() != null ? mcp.getUser_facing_title().trim() : ""
+        );
+
+        StringBuilder contextBuilder = new StringBuilder();
+
+        if (mcp.getUser_facing_summary() != null && !mcp.getUser_facing_summary().isBlank()) {
+            contextBuilder.append(sanitizeWidgetText(mcp.getUser_facing_summary().trim()));
+        }
+
+        if (mcp.getCapability_name() != null && !mcp.getCapability_name().isBlank()) {
+            if (contextBuilder.length() > 0) {
+                contextBuilder.append(" ");
+            }
+            contextBuilder
+                .append("Capacidad principal: ")
+                .append(sanitizeWidgetText(mcp.getCapability_name().trim()))
+                .append(".");
+        }
+
+        if (mcp.getUser_facing_context() != null && !mcp.getUser_facing_context().isBlank()) {
+            if (contextBuilder.length() > 0) {
+                contextBuilder.append("\n\n");
+            }
+            contextBuilder.append(sanitizeWidgetText(mcp.getUser_facing_context().trim()));
+        }
+
+        if (mcp.getNext_step_hint() != null && !mcp.getNext_step_hint().isBlank()) {
+            if (contextBuilder.length() > 0) {
+                contextBuilder.append("\n\n");
+            }
+            contextBuilder.append(sanitizeWidgetText(mcp.getNext_step_hint().trim()));
+        }
+
+        if (mcp.getOffer_help() != null && !mcp.getOffer_help().isBlank()) {
+            if (contextBuilder.length() > 0) {
+                contextBuilder.append("\n\n");
+            }
+            contextBuilder.append(sanitizeWidgetText(mcp.getOffer_help().trim()));
+        }
+
+        String contextText = contextBuilder.toString().trim();
+
+        if (!answerText.isBlank()) {
+            memory.saveMessage(conv, "assistant", answerText);
+        }
+
+        McpDtos.McpResponse r = baseMcp();
+        r.answer.summary = answerText.length() > 140
+            ? answerText.substring(0, 140) + "…"
+            : answerText;
+
+        McpDtos.McpResponse.Section secNotice =
+            notice("sec_notice_mcpone", "info", badge, "conversationId=" + conversationId);
+
+        McpDtos.McpResponse.Section secMain = new McpDtos.McpResponse.Section();
+        secMain.id = "sec_text_mcpone";
+        secMain.type = "text";
+        secMain.title = title;
+        secMain.text = answerText;
+
+        if (!contextText.isBlank()) {
+            McpDtos.McpResponse.Section secContext = new McpDtos.McpResponse.Section();
+            secContext.id = "sec_text_mcpone_context";
+            secContext.type = "text";
+            secContext.title = "Contexto";
+            secContext.text = contextText;
+
+            r.answer.sections = List.of(secNotice, secMain, secContext);
+        } else {
+            r.answer.sections = List.of(secNotice, secMain);
+        }
+
+        return r;
+    }
+
+    // ============================================================
+    // 2) Fallback temporal: copy service local
+    // ============================================================
+    String displayState = routed.getDisplayState() != null ? routed.getDisplayState() : "resolved";
+
+    McpOneDiscoveryMode discoveryMode =
+        mcpOneDiscoveryModeService.detect(req.message(), product, displayState, mcp);
+
+    McpOneWidgetCopy widgetCopy =
+        mcpOneWidgetCopyService.build(req.message(), product, displayState, discoveryMode, mcp);
+
+    String answerText = sanitizeWidgetText(
+        widgetCopy.getMessage() != null ? widgetCopy.getMessage().trim() : ""
+    );
+
+    String insight = sanitizeWidgetText(
+        widgetCopy.getSecondaryMessage() != null ? widgetCopy.getSecondaryMessage().trim() : ""
+    );
+
+    String badge = widgetCopy.getBadge() != null ? widgetCopy.getBadge().trim() : "Respuesta";
+    String title = widgetCopy.getTitle() != null ? widgetCopy.getTitle().trim() : "Respuesta";
+
+    if (!answerText.isBlank()) {
+        memory.saveMessage(conv, "assistant", answerText);
+    }
+
+    McpDtos.McpResponse r = baseMcp();
+    r.answer.summary = answerText.length() > 140
+        ? answerText.substring(0, 140) + "…"
+        : answerText;
+
+    McpDtos.McpResponse.Section secNotice =
+        notice("sec_notice_mcpone_fallback", "info", badge, "conversationId=" + conversationId);
+
+    McpDtos.McpResponse.Section secMain = new McpDtos.McpResponse.Section();
+    secMain.id = "sec_text_mcpone_fallback";
+    secMain.type = "text";
+    secMain.title = title;
+    secMain.text = answerText;
+
+    if (insight != null && !insight.isBlank()) {
+        McpDtos.McpResponse.Section secInsight = new McpDtos.McpResponse.Section();
+        secInsight.id = "sec_text_mcpone_fallback_insight";
+        secInsight.type = "text";
+        secInsight.title = "Contexto";
+        secInsight.text = insight;
+
+        r.answer.sections = List.of(secNotice, secMain, secInsight);
+    } else {
+        r.answer.sections = List.of(secNotice, secMain);
+    }
+
+    return r;
 }
 
   private McpDtos.McpResponse baseMcp() {
@@ -1621,6 +1996,21 @@ CHAT RECIENTE:
       case "down" -> "bajista";
       default -> "estable";
     };
+  }
+
+  private String sanitizeWidgetText(String text) {
+    if (text == null || text.isBlank()) {
+      return "";
+    }
+
+    return text
+        // quita separadores markdown tipo ---
+        .replaceAll("(?m)^\\s*---\\s*$", "")
+        // quita headings markdown al inicio de línea: # ## ###
+        .replaceAll("(?m)^\\s{0,3}#{1,6}\\s+", "")
+        // compacta saltos excesivos
+        .replaceAll("\\n{3,}", "\n\n")
+        .trim();
   }
 
   private String esStrength(String strength) {
@@ -1736,5 +2126,52 @@ CHAT RECIENTE:
   private String capitalizeWord(String value) {
     if (value == null || value.isBlank()) return "-";
     return value.substring(0,1).toUpperCase() + value.substring(1).toLowerCase();
+  }
+
+  private boolean isExplicitCryptoToolFlow(String rawMessage) {
+  if (rawMessage == null || rawMessage.isBlank()) return false;
+
+  String msg = rawMessage.toLowerCase();
+
+  return
+      msg.contains("precio") ||
+      msg.contains("price") ||
+      msg.contains("cotiza") ||
+      msg.contains("vale") ||
+      msg.contains("valor") ||
+      msg.contains("cuánto") ||
+      msg.contains("cuanto") ||
+      msg.contains("movers") ||
+      msg.contains("top movers") ||
+      msg.contains("gainers") ||
+      msg.contains("losers") ||
+      msg.contains("momentum") ||
+      msg.contains("fuerza") ||
+      msg.contains("strength") ||
+      msg.contains("traccion") ||
+      msg.contains("tracción") ||
+      msg.contains("regime") ||
+      msg.contains("market regime") ||
+      msg.contains("regimen") ||
+      msg.contains("régimen") ||
+      msg.contains("trend") ||
+      msg.contains("trends") ||
+      msg.contains("tendencia") ||
+      msg.contains("tendencias") ||
+      msg.contains("risk flags") ||
+      msg.contains("anomalies") ||
+      msg.contains("anomaly") ||
+      msg.contains("anomalia") ||
+      msg.contains("anomalía") ||
+      msg.contains("market health") ||
+      msg.contains("salud del mercado") ||
+      msg.contains("social pulse") ||
+      msg.contains("market narrative") ||
+      msg.contains("snapshot") ||
+      msg.contains("market snapshot") ||
+      msg.contains("overview") ||
+      msg.contains("btc") ||
+      msg.contains("eth") ||
+      msg.contains("sol");
   }
 }
